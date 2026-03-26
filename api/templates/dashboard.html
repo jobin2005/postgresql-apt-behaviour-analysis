@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>APT Shield — PostgreSQL Threat Monitor</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&display=swap" rel="stylesheet"/>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+  <style>
+    :root {
+      --bg:       #0b0f1a;
+      --surface:  #131828;
+      --card:     #1a2035;
+      --border:   #2a3450;
+      --accent:   #4f7cfe;
+      --danger:   #f24444;
+      --warn:     #f5a623;
+      --ok:       #2ecc71;
+      --text:     #e2e8f0;
+      --muted:    #8892a4;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Inter', sans-serif;
+      min-height: 100vh;
+    }
+
+    /* ── Topbar ─────────────────────────────────────── */
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 2rem;
+      height: 60px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    .logo { display: flex; align-items: center; gap: .6rem; }
+    .logo svg { width: 28px; height: 28px; }
+    .logo span { font-size: 1.1rem; font-weight: 700; letter-spacing: .02em; }
+    .logo em { color: var(--accent); font-style: normal; }
+    .badge-live {
+      background: var(--danger);
+      color: #fff;
+      font-size: .65rem;
+      font-weight: 700;
+      padding: .15rem .5rem;
+      border-radius: 999px;
+      letter-spacing: .08em;
+      animation: pulse 1.5s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0.4; }
+    }
+
+    /* ── Layout ─────────────────────────────────────── */
+    main { max-width: 1400px; margin: 0 auto; padding: 2rem; }
+
+    /* ── Stat Cards ─────────────────────────────────── */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 1rem;
+      margin-bottom: 2rem;
+    }
+    .stat-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.4rem;
+      position: relative;
+      overflow: hidden;
+      transition: transform .2s, box-shadow .2s;
+    }
+    .stat-card:hover { transform: translateY(-2px); box-shadow: 0 8px 30px rgba(0,0,0,.4); }
+    .stat-card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 3px;
+    }
+    .stat-card.blue::before  { background: var(--accent); }
+    .stat-card.red::before   { background: var(--danger); }
+    .stat-card.yellow::before{ background: var(--warn); }
+    .stat-card.green::before { background: var(--ok); }
+    .stat-label { font-size: .75rem; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; margin-bottom: .5rem; }
+    .stat-value { font-size: 2.2rem; font-weight: 900; line-height: 1; }
+    .stat-card.blue  .stat-value { color: var(--accent); }
+    .stat-card.red   .stat-value { color: var(--danger); }
+    .stat-card.yellow.stat-value { color: var(--warn); }
+    .stat-card.green .stat-value { color: var(--ok); }
+
+    /* ── Panels ─────────────────────────────────────── */
+    .panels {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1.5rem;
+      margin-bottom: 2rem;
+    }
+    @media (max-width: 900px) { .panels { grid-template-columns: 1fr; } }
+
+    .panel {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.5rem;
+    }
+    .panel-title {
+      font-size: .8rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: .1em;
+      color: var(--muted);
+      margin-bottom: 1rem;
+    }
+
+    /* ── Threat Timeline Table ───────────────────────── */
+    .threat-table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: .82rem; }
+    th {
+      text-align: left;
+      color: var(--muted);
+      font-weight: 600;
+      font-size: .7rem;
+      text-transform: uppercase;
+      letter-spacing: .07em;
+      padding: .5rem .75rem;
+      border-bottom: 1px solid var(--border);
+    }
+    td { padding: .6rem .75rem; border-bottom: 1px solid #1e2840; vertical-align: middle; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: rgba(79,124,254,.06); }
+
+    .chip {
+      display: inline-block;
+      padding: .2rem .6rem;
+      border-radius: 6px;
+      font-size: .7rem;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+    .chip.block { background: rgba(242,68,68,.15); color: var(--danger); }
+    .chip.alert { background: rgba(245,166,35,.15); color: var(--warn); }
+    .chip.rate_limit { background: rgba(79,124,254,.15); color: var(--accent); }
+    .chip.noop  { background: rgba(46,204,113,.1); color: var(--ok); }
+
+    .score-bar {
+      display: flex;
+      align-items: center;
+      gap: .5rem;
+    }
+    .score-bar-bg {
+      flex: 1;
+      height: 6px;
+      background: var(--border);
+      border-radius: 99px;
+      overflow: hidden;
+    }
+    .score-bar-fill { height: 100%; border-radius: 99px; }
+    .score-val { font-size: .78rem; font-weight: 600; min-width: 36px; text-align: right; }
+
+    /* ── Empty state ─────────────────────────────────── */
+    .empty { text-align: center; color: var(--muted); padding: 2rem; font-size: .85rem; }
+
+    /* ── Chart area ──────────────────────────────────── */
+    .chart-wrap { position: relative; height: 240px; }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <svg viewBox="0 0 32 32" fill="none">
+      <circle cx="16" cy="16" r="15" stroke="#4f7cfe" stroke-width="2"/>
+      <path d="M16 8v8l5 3" stroke="#f24444" stroke-width="2.2" stroke-linecap="round"/>
+      <circle cx="16" cy="16" r="3" fill="#4f7cfe"/>
+    </svg>
+    <span>APT <em>Shield</em></span>
+    <span class="badge-live">LIVE</span>
+  </div>
+  <div style="font-size:.75rem;color:var(--muted);">ShakthiDB · Pravartak Technologies · IIT Madras</div>
+</header>
+
+<main>
+  <!-- Stat Cards -->
+  <div class="stats-grid">
+    <div class="stat-card blue">
+      <div class="stat-label">Total Sessions</div>
+      <div class="stat-value" id="st-total">—</div>
+    </div>
+    <div class="stat-card red">
+      <div class="stat-label">APT Sessions</div>
+      <div class="stat-value" id="st-apt">—</div>
+    </div>
+    <div class="stat-card yellow">
+      <div class="stat-label">Total Alerts</div>
+      <div class="stat-value" id="st-alerts">—</div>
+    </div>
+    <div class="stat-card green">
+      <div class="stat-label">Avg Threat Score (1h)</div>
+      <div class="stat-value" id="st-score">—</div>
+    </div>
+  </div>
+
+  <!-- Panels -->
+  <div class="panels">
+    <!-- Threat timeline chart -->
+    <div class="panel">
+      <div class="panel-title">Threat Score Timeline (last 24h)</div>
+      <div class="chart-wrap"><canvas id="threatChart"></canvas></div>
+    </div>
+
+    <!-- Action distribution chart -->
+    <div class="panel">
+      <div class="panel-title">Defense Actions (last 24h)</div>
+      <div class="chart-wrap"><canvas id="actionChart"></canvas></div>
+    </div>
+  </div>
+
+  <!-- Alert Table -->
+  <div class="panel">
+    <div class="panel-title">Recent Threat Events</div>
+    <div class="threat-table-wrap">
+      <table id="threatTable">
+        <thead>
+          <tr>
+            <th>Time</th>
+            <th>Session</th>
+            <th>User</th>
+            <th>Action</th>
+            <th>Threat Score</th>
+          </tr>
+        </thead>
+        <tbody id="threatBody">
+          <tr><td colspan="5" class="empty">Loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</main>
+
+<script>
+// ── Chart instances ──────────────────────────────────
+const ctxThreat = document.getElementById('threatChart').getContext('2d');
+const ctxAction = document.getElementById('actionChart').getContext('2d');
+
+const threatChart = new Chart(ctxThreat, {
+  type: 'line',
+  data: { labels: [], datasets: [{
+    label: 'Threat Score',
+    data: [],
+    borderColor: '#f24444',
+    backgroundColor: 'rgba(242,68,68,0.12)',
+    borderWidth: 2,
+    pointRadius: 3,
+    fill: true,
+    tension: 0.4,
+  }]},
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    plugins: { legend: { display: false } },
+    scales: {
+      x: { ticks: { color: '#8892a4', font: { size: 10 } }, grid: { color: '#1e2840' }},
+      y: { min: 0, max: 1, ticks: { color: '#8892a4', font: { size: 10 } }, grid: { color: '#1e2840' }},
+    }
+  }
+});
+
+const actionChart = new Chart(ctxAction, {
+  type: 'doughnut',
+  data: {
+    labels: ['No-op', 'Alert', 'Rate-Limit', 'Block'],
+    datasets: [{
+      data: [0, 0, 0, 0],
+      backgroundColor: ['#2ecc71', '#f5a623', '#4f7cfe', '#f24444'],
+      borderWidth: 0,
+    }]
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    plugins: {
+      legend: { position: 'right', labels: { color: '#e2e8f0', font: { size: 11 } }}
+    }
+  }
+});
+
+// ── Helpers ──────────────────────────────────────────
+function scoreColor(s) {
+  if (s >= 0.75) return '#f24444';
+  if (s >= 0.5)  return '#f5a623';
+  return '#2ecc71';
+}
+
+function fmtTime(iso) {
+  const d = new Date(iso);
+  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+
+// ── Fetch & render ───────────────────────────────────
+async function refresh() {
+  try {
+    const [statsRes, threatsRes] = await Promise.all([
+      fetch('/api/stats'),
+      fetch('/api/threats?limit=50&hours=24'),
+    ]);
+    const stats   = await statsRes.json();
+    const threats = await threatsRes.json();
+
+    // Stats
+    document.getElementById('st-total').textContent  = stats.total_sessions   ?? '—';
+    document.getElementById('st-apt').textContent    = stats.apt_sessions      ?? '—';
+    document.getElementById('st-alerts').textContent = stats.total_alerts      ?? '—';
+    document.getElementById('st-score').textContent  = stats.avg_threat_score_1h != null
+      ? stats.avg_threat_score_1h.toFixed(2) : '—';
+
+    // Threat timeline chart
+    const sorted = [...threats].reverse();
+    threatChart.data.labels   = sorted.map(t => fmtTime(t.created_at));
+    threatChart.data.datasets[0].data = sorted.map(t => +t.threat_score.toFixed(3));
+    threatChart.update();
+
+    // Action distribution chart
+    const counts = { noop: 0, alert: 0, rate_limit: 0, block: 0 };
+    threats.forEach(t => { counts[t.action_taken] = (counts[t.action_taken] || 0) + 1; });
+    actionChart.data.datasets[0].data = [counts.noop, counts.alert, counts.rate_limit, counts.block];
+    actionChart.update();
+
+    // Table
+    const tbody = document.getElementById('threatBody');
+    if (!threats.length) {
+      tbody.innerHTML = '<tr><td colspan="5" class="empty">No threat events in the last 24 hours.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = threats.slice(0, 50).map(t => {
+      const sc    = +t.threat_score;
+      const color = scoreColor(sc);
+      return `<tr>
+        <td style="color:var(--muted)">${fmtTime(t.created_at)}</td>
+        <td>#${t.session_id}</td>
+        <td style="font-weight:500">${t.user_name || '—'}</td>
+        <td><span class="chip ${t.action_taken}">${t.action_taken}</span></td>
+        <td>
+          <div class="score-bar">
+            <div class="score-bar-bg">
+              <div class="score-bar-fill" style="width:${(sc*100).toFixed(1)}%;background:${color}"></div>
+            </div>
+            <span class="score-val" style="color:${color}">${sc.toFixed(2)}</span>
+          </div>
+        </td>
+      </tr>`;
+    }).join('');
+
+  } catch (e) {
+    console.warn('Refresh error:', e);
+  }
+}
+
+// Auto-refresh every 5 seconds
+refresh();
+setInterval(refresh, 5000);
+</script>
+</body>
+</html>
