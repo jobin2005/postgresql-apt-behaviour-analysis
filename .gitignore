@@ -1,9 +1,23 @@
 venv/
+.venv/
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
 .env
-*hellokernel/.o
-*hellokernel/.ko
-*hellokernel/.mod.*
-*hellokernel/.symvers
-hellokernel/modules.order
+.pytest_cache/
+checkpoints/*.pt
+checkpoints/metrics.json
+*.log
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+
+# Kernel build artifacts (if applicable)
+hello_kernel/*.o
+hello_kernel/*.ko
+hello_kernel/*.mod.*
+hello_kernel/*.symvers
+hello_kernel/modules.order
