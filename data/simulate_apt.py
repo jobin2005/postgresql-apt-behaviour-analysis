@@ -101,13 +101,17 @@ def _insert_event(cur, session_id, cmd, schema, obj, rows, ts):
     )
 
 
-def simulate_benign(conn, n=20):
+def simulate_benign(conn, n=20, live=False):
     """Insert n benign sessions."""
     with conn:
         with conn.cursor() as cur:
             for _ in range(n):
                 user = random.choice(USERS[:4])
-                base = datetime.now(tz=timezone.utc) - timedelta(hours=random.randint(1, 48))
+                if live:
+                    base = datetime.now(tz=timezone.utc)
+                else:
+                    base = datetime.now(tz=timezone.utc) - timedelta(hours=random.randint(1, 48))
+                
                 sid = _insert_session(cur, user, 0, base)
                 num_events = random.randint(3, 15)
                 for j in range(num_events):
@@ -117,13 +121,17 @@ def simulate_benign(conn, n=20):
     print(f"[Simulator] Inserted {n} benign sessions.")
 
 
-def simulate_apt(conn, n=7):
+def simulate_apt(conn, n=7, live=False):
     """Insert n multi-stage APT sessions."""
     with conn:
         with conn.cursor() as cur:
             for _ in range(n):
                 user = "eve_attacker"
-                base = datetime.now(tz=timezone.utc) - timedelta(hours=random.randint(1, 72))
+                if live:
+                    base = datetime.now(tz=timezone.utc)
+                else:
+                    base = datetime.now(tz=timezone.utc) - timedelta(hours=random.randint(1, 72))
+                
                 sid = _insert_session(cur, user, 2, base)
                 offset_sec = 0
                 for stage_name in ["recon", "lateral_movement", "privilege_escalation", "exfiltration"]:
@@ -142,6 +150,8 @@ def main():
                         help="Total sessions to generate (default: 50)")
     parser.add_argument("--apt-ratio", type=float, default=0.3,
                         help="Fraction of sessions that are APT (default: 0.3)")
+    parser.add_argument("--live", action="store_true",
+                        help="Use current timestamps for real-time monitoring")
     args = parser.parse_args()
 
     n_apt = max(1, int(args.sessions * args.apt_ratio))
@@ -149,8 +159,8 @@ def main():
 
     conn = get_conn()
     try:
-        simulate_benign(conn, n=n_benign)
-        simulate_apt(conn, n=n_apt)
+        simulate_benign(conn, n=n_benign, live=args.live)
+        simulate_apt(conn, n=n_apt, live=args.live)
         print(f"[Simulator] Done. Total sessions: {args.sessions} "
               f"(benign={n_benign}, apt={n_apt})")
     finally:
