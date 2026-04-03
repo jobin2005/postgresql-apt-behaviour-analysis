@@ -32,6 +32,7 @@ def get_conn():
         password=os.getenv("DB_PASSWORD"),
         host=os.getenv("DB_HOST"),
         port=os.getenv("DB_PORT"),
+        sslmode=os.getenv("DB_SSL_MODE", "prefer"),
         cursor_factory=RealDictCursor,
     )
 

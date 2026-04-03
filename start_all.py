@@ -24,10 +24,10 @@ def main():
         print("Please train the agent first: python agent/train.py --episodes 300")
         sys.exit(1)
 
-    print("🚀 Starting APT Shield System...")
+    print(" Starting APT Shield System...")
     
     # 1. Start the Monitor Daemon
-    print(f"📡 Launching Monitor Daemon (polling DB for threats)...")
+    print(f" Launching Monitor Daemon (polling DB for threats)...")
     monitor_proc = subprocess.Popen(
         [sys.executable, str(MONITOR_SCRIPT), "--checkpoint", str(CHECKPOINT)],
         stdout=sys.stdout,
@@ -35,7 +35,7 @@ def main():
     )
 
     # 2. Start the Flask Dashboard
-    print(f"📊 Launching Dashboard at http://localhost:5000 ...")
+    print(f"Launching Dashboard at http://localhost:5000 ...")
     env = os.environ.copy()
     env["PYTHONPATH"] = str(ROOT) # ensure absolute imports work
     dashboard_proc = subprocess.Popen(
@@ -58,7 +58,7 @@ def main():
                 print("Error: Dashboard process died.")
                 break
     except KeyboardInterrupt:
-        print("\n🛑 Shutting down...")
+        print("\n Shutting down...")
     finally:
         monitor_proc.terminate()
         dashboard_proc.terminate()
