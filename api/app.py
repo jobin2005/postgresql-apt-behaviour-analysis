@@ -115,7 +115,7 @@ def get_stats():
             )
             apt_sessions = cur.fetchone()["apt_sessions"]
             cur.execute(
-                "SELECT AVG(threat_score) AS avg_score FROM apt_alerts WHERE created_at > NOW() - INTERVAL '1 hour'"
+                "SELECT AVG(threat_score) AS avg_score FROM apt_alerts WHERE created_at > NOW() - INTERVAL '3 days'"
             )
             row = cur.fetchone()
             avg_score = float(row["avg_score"]) if row["avg_score"] else 0.0

@@ -213,13 +213,13 @@
   <div class="panels">
     <!-- Threat timeline chart -->
     <div class="panel">
-      <div class="panel-title">Threat Score Timeline (last 24h)</div>
+      <div class="panel-title">Threat Score Timeline (last 72h)</div>
       <div class="chart-wrap"><canvas id="threatChart"></canvas></div>
     </div>
 
     <!-- Action distribution chart -->
     <div class="panel">
-      <div class="panel-title">Defense Actions (last 24h)</div>
+      <div class="panel-title">Defense Actions (last 72h)</div>
       <div class="chart-wrap"><canvas id="actionChart"></canvas></div>
     </div>
   </div>
@@ -308,7 +308,7 @@ async function refresh() {
   try {
     const [statsRes, threatsRes] = await Promise.all([
       fetch('/api/stats'),
-      fetch('/api/threats?limit=50&hours=24'),
+      fetch('/api/threats?limit=100&hours=72'),
     ]);
     const stats   = await statsRes.json();
     const threats = await threatsRes.json();

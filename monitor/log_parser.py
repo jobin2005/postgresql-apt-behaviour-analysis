@@ -60,12 +60,12 @@ def fetch_session_events(conn, session_id: int, limit: int = 50) -> list[dict]:
 
 
 def fetch_active_sessions(conn) -> list[int]:
-    """Return session IDs with activity in the last 5 minutes."""
+    """Return session IDs with activity in the last 3 days (to pick up simulation data)."""
     with conn.cursor() as cur:
         cur.execute(
             """SELECT DISTINCT session_id
                FROM apt_events
-               WHERE event_time > NOW() - INTERVAL '5 minutes'"""
+               WHERE event_time > NOW() - INTERVAL '3 days'"""
         )
         return [r[0] for r in cur.fetchall()]
 
