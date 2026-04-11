@@ -13,7 +13,6 @@ Endpoints:
 
 import os
 import sys
-import json
 from datetime import datetime, timezone, timedelta
 
 from flask import Flask, render_template, jsonify, request
@@ -134,11 +133,22 @@ def get_stats():
 def post_feedback():
     """Human-in-the-loop: mark an alert as resolved or mis-classified."""
     data = request.get_json()
+    if not data:
+        return jsonify({"error": "JSON body required"}), 400
+
     alert_id  = data.get("alert_id")
     resolved  = data.get("resolved", True)
 
-    if not alert_id:
+    if alert_id is None:
         return jsonify({"error": "alert_id required"}), 400
+
+    try:
+        alert_id = int(alert_id)
+    except (ValueError, TypeError):
+        return jsonify({"error": "alert_id must be an integer"}), 400
+
+    if not isinstance(resolved, bool):
+        return jsonify({"error": "resolved must be a boolean"}), 400
 
     conn = get_conn()
     try:

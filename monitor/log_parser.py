@@ -38,7 +38,7 @@ def fetch_session_events(conn, session_id: int, limit: int = 50) -> list[dict]:
     with conn.cursor() as cur:
         cur.execute(
             """SELECT event_time, command_type, object_schema, object_name,
-                      rows_affected, duration_ms
+                      rows_affected, duration_ms, query_hash
                FROM apt_events
                WHERE session_id = %s
                ORDER BY event_time DESC
@@ -55,6 +55,7 @@ def fetch_session_events(conn, session_id: int, limit: int = 50) -> list[dict]:
             "object_name":   row[3],
             "rows_affected": row[4],
             "duration_ms":   row[5],
+            "query_hash":    row[6],
         })
     return events
 
@@ -84,7 +85,7 @@ def fetch_all_labelled_sessions(conn) -> list[dict]:
         with conn.cursor() as cur:
             cur.execute(
                 """SELECT event_time, command_type, object_schema, object_name,
-                          rows_affected, duration_ms
+                          rows_affected, duration_ms, query_hash
                    FROM apt_events
                    WHERE session_id = %s
                    ORDER BY event_time""",
@@ -93,7 +94,8 @@ def fetch_all_labelled_sessions(conn) -> list[dict]:
             rows = cur.fetchall()
         events = [
             {"event_time": r[0], "command_type": r[1], "object_schema": r[2],
-             "object_name": r[3], "rows_affected": r[4], "duration_ms": r[5]}
+             "object_name": r[3], "rows_affected": r[4], "duration_ms": r[5],
+             "query_hash": r[6]}
             for r in rows
         ]
         if events:

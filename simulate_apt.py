@@ -76,8 +76,12 @@ BENIGN_EVENTS = [
 USERS = ["alice", "bob", "charlie", "dave", "eve_attacker"]
 
 
-def _hash_query(cmd, schema, obj):
+def _hash_query(cmd, schema, obj, high_entropy=False):
+    """Generate query hash with controllable entropy level."""
     raw = f"{cmd}|{schema}|{obj}"
+    if high_entropy:
+        # APT: add randomness to simulate obfuscated / injected SQL
+        raw += f"|{random.randint(0, 999999)}|{random.random()}"
     return hashlib.md5(raw.encode()).hexdigest()[:16]
 
 
@@ -90,15 +94,23 @@ def _insert_session(cur, user, label, base_time):
     return cur.fetchone()[0]
 
 
-def _insert_event(cur, session_id, cmd, schema, obj, rows, ts):
+def _insert_event(cur, session_id, cmd, schema, obj, rows, ts, high_entropy=False):
+    """Insert an event with entropy-aware hash and realistic duration."""
+    if high_entropy:
+        # APT tools run fast automated queries
+        duration = round(random.uniform(0.1, 5.0), 2)
+    else:
+        # Normal users have moderate query times
+        duration = round(random.uniform(20.0, 500.0), 2)
+
     cur.execute(
         """INSERT INTO apt_events
                (session_id, event_time, command_type, object_schema, object_name,
                 rows_affected, query_hash, duration_ms)
            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
         (session_id, ts, cmd, schema, obj, rows,
-         _hash_query(cmd, schema, obj),
-         round(random.uniform(0.5, 300.0), 2)),
+         _hash_query(cmd, schema, obj, high_entropy=high_entropy),
+         duration),
     )
 
 
@@ -119,7 +131,7 @@ def simulate_benign(conn, n=20, live=False):
                     cmd, schema, obj, rows = random.choice(BENIGN_EVENTS)
                     # Random time gaps (5s to 120s)
                     ts = base + timedelta(seconds=j * random.randint(5, 120))
-                    _insert_event(cur, sid, cmd, schema, obj, rows, ts)
+                    _insert_event(cur, sid, cmd, schema, obj, rows, ts, high_entropy=False)
     print(f"[Simulator] Inserted {n} benign sessions with varied lengths.")
 
 
@@ -154,14 +166,14 @@ def simulate_apt(conn, n=7, live=False):
                         cmd, schema, obj, rows = random.choice(BENIGN_EVENTS)
                         ts = base + timedelta(seconds=offset_sec)
                         offset_sec += random.randint(10, 60)
-                        _insert_event(cur, sid, cmd, schema, obj, rows, ts)
+                        _insert_event(cur, sid, cmd, schema, obj, rows, ts, high_entropy=False)
 
                     # Actual attack stage events
                     for cmd, schema, obj, rows in APT_STAGES[stage_name]:
                         ts = base + timedelta(seconds=offset_sec)
                         # attackers might wait between commands too
                         offset_sec += random.randint(30, 600)
-                        _insert_event(cur, sid, cmd, schema, obj, rows, ts)
+                        _insert_event(cur, sid, cmd, schema, obj, rows, ts, high_entropy=True)
                     
     print(f"[Simulator] Inserted {n} APT sessions (partials included, with added noise).")
 

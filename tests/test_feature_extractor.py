@@ -11,16 +11,23 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from datetime import datetime, timezone, timedelta
 import numpy as np
 import pytest
-from monitor.feature_extractor import extract_state, state_dim, WINDOW_SIZE, FEATURES_PER_EVENT
+from monitor.feature_extractor import (
+    extract_state, state_dim, WINDOW_SIZE, FEATURES_PER_EVENT,
+    _query_entropy, _semantic_intent,
+)
 
 
-def make_event(cmd="SELECT", schema="public", rows=10, delta_secs=30):
+def make_event(cmd="SELECT", schema="public", obj="products",
+               rows=10, delta_secs=30, duration_ms=50.0,
+               query_hash="abc123"):
     return {
         "command_type":  cmd,
         "object_schema": schema,
+        "object_name":   obj,
         "rows_affected": rows,
         "event_time":    datetime.now(tz=timezone.utc),
-        "duration_ms":   50.0,
+        "duration_ms":   duration_ms,
+        "query_hash":    query_hash,
     }
 
 
@@ -29,7 +36,7 @@ def test_state_dim():
 
 
 def test_extract_single_event():
-    ev = make_event("SELECT", "public", 10)
+    ev = make_event("SELECT", "public", "products", 10)
     state = extract_state([ev])
     assert state.shape == (state_dim(),)
     assert state.dtype == np.float32
@@ -49,8 +56,8 @@ def test_zero_pad_short_window():
 
 
 def test_apt_schema_higher_sensitivity():
-    ev_pub = make_event("SELECT", "public", 10)
-    ev_pg  = make_event("SELECT", "pg_catalog", 10)
+    ev_pub = make_event("SELECT", "public", "products", 10)
+    ev_pg  = make_event("SELECT", "pg_catalog", "pg_roles", 10)
     state_pub = extract_state([ev_pub])
     state_pg  = extract_state([ev_pg])
     # pg_catalog sensitivity (index N_CMD_TYPES) should be higher for pg_catalog
@@ -79,3 +86,51 @@ def test_unknown_command_maps_to_other():
     ev = make_event("VACUUM")
     state = extract_state([ev])
     assert not np.isnan(state).any()
+
+
+# ── Phase 1: New Feature Tests ───────────────────────────────────────────────
+
+def test_query_entropy_low():
+    """Repeated characters should produce low entropy."""
+    assert _query_entropy("aaaa") < 0.1
+
+
+def test_query_entropy_high():
+    """Diverse characters should produce high entropy."""
+    assert _query_entropy("a1b2c3d4e5f6g7h8") > 0.5
+
+
+def test_query_entropy_empty():
+    """Empty string should return 0."""
+    assert _query_entropy("") == 0.0
+
+
+def test_semantic_intent_sensitive():
+    """Queries targeting pg_shadow should have high threat intent."""
+    score = _semantic_intent("SELECT", "pg_catalog", "pg_shadow")
+    assert score >= 0.9
+
+
+def test_semantic_intent_benign():
+    """Queries on normal tables should have low intent."""
+    score = _semantic_intent("SELECT", "public", "products")
+    assert score <= 0.2
+
+
+def test_semantic_intent_amplified_for_admin():
+    """ALTER ROLE on sensitive objects should amplify the score."""
+    base  = _semantic_intent("SELECT", "pg_catalog", "pg_roles")
+    amped = _semantic_intent("ALTER ROLE", "pg_catalog", "pg_roles")
+    assert amped >= base
+
+
+def test_duration_normalised_in_state():
+    """Duration feature should appear in the state vector."""
+    ev_fast = make_event(duration_ms=1.0)
+    ev_slow = make_event(duration_ms=5000.0)
+    state_fast = extract_state([ev_fast])
+    state_slow = extract_state([ev_slow])
+    # Duration is at N_CMD_TYPES + 3 = 12 (in last slot)
+    dur_idx = (WINDOW_SIZE - 1) * FEATURES_PER_EVENT + 12
+    assert state_slow[dur_idx] > state_fast[dur_idx]
+

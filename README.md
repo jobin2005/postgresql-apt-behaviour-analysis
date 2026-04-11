@@ -29,23 +29,28 @@ pg_audit logs → Feature Extractor → DQL Agent → Defense Actions
 ```
 Postgre/
 ├── data/
-│   ├── schema.sql          # DB schema (apt_sessions, apt_events, apt_alerts)
-│   └── simulate_apt.py     # APT + benign session simulator
+│   └── schema.sql            # DB schema (apt_sessions, apt_events, apt_alerts)
 ├── agent/
-│   ├── environment.py      # Gymnasium-compatible RL environment
-│   ├── dqn_model.py        # PyTorch Deep Q-Network
-│   ├── replay_buffer.py    # Experience replay buffer
-│   └── train.py            # Training + evaluation loop
+│   ├── environment.py        # Gymnasium-compatible RL environment
+│   ├── dqn_model.py          # PyTorch Deep Q-Network
+│   ├── replay_buffer.py      # Experience replay buffer
+│   └── train.py              # Training + evaluation loop
 ├── monitor/
-│   ├── feature_extractor.py # SQL events → 120-dim state vector
-│   ├── log_parser.py        # DB & pg_audit log ingestion
-│   └── monitor.py           # Live monitoring daemon
+│   ├── feature_extractor.py  # SQL events → 150-dim state vector
+│   ├── log_parser.py         # DB & pg_audit log ingestion
+│   └── monitor.py            # Live monitoring daemon
 ├── defense/
-│   └── actions.py           # alert / rate-limit / block actions
+│   └── actions.py            # alert / rate-limit / block actions
 ├── api/
-│   ├── app.py               # Flask REST API
+│   ├── app.py                # Flask REST API
 │   └── templates/dashboard.html  # Real-time threat dashboard
-└── tests/                   # Unit tests
+├── src/
+│   └── apt_guard.c           # PostgreSQL C extension (executor hook + BGW)
+├── sql/
+│   └── apt_guard--1.0.sql    # Extension SQL definitions
+├── simulate_apt.py           # APT + benign session simulator
+├── start_all.py              # Launch monitor + dashboard
+└── tests/                    # Unit tests
 ```
 
 ---
@@ -54,18 +59,18 @@ Postgre/
 
 ### 1. Prerequisites
 ```bash
-source venv/bin/activate
-pip install -r requirements.txt
+pip install torch psycopg2-binary python-dotenv flask numpy tqdm gymnasium
 ```
 
 ### 2. Create DB Schema
 ```bash
-psql -U postgres -d demo -f data/schema.sql
+# Using Supabase (update connection string with your credentials):
+psql "postgresql://<USER>:<PASSWORD>@<HOST>:<PORT>/postgres" -f data/schema.sql
 ```
 
 ### 3. Generate Training Data & Train (required at least once)
 ```bash
-python data/simulate_apt.py --sessions 100 --apt-ratio 0.3
+python simulate_apt.py --sessions 100 --apt-ratio 0.3
 python agent/train.py --episodes 300
 ```
 
@@ -89,7 +94,7 @@ python start_all.py
 
 | Component | Detail |
 |-----------|--------|
-| State space | 120-dim vector: 10-event window × 12 features |
+| State space | 150-dim vector: 10-event window × 15 features |
 | Action space | Discrete(4): No-op, Alert, Rate-Limit, Block |
 | Algorithm | Double DQN with experience replay |
 | Reward | +10 correct block, -8 missed APT, −2 false positive |

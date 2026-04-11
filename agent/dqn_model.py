@@ -4,7 +4,7 @@ dqn_model.py
 Deep Q-Network implemented in PyTorch.
 
 Architecture:
-    Input (state_dim=120) → Linear(256) → ReLU → Dropout(0.2)
+    Input (state_dim=150) → Linear(256) → ReLU → Dropout(0.2)
                           → Linear(128) → ReLU → Dropout(0.2)
                           → Linear(4)   → Q-values
 
@@ -21,7 +21,7 @@ import torch.nn.functional as F
 
 
 class DQN(nn.Module):
-    def __init__(self, state_dim: int = 120, n_actions: int = 4):
+    def __init__(self, state_dim: int = 150, n_actions: int = 4):
         super().__init__()
         self.net = nn.Sequential(
             nn.Linear(state_dim, 256),

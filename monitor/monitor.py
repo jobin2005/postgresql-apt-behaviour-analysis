@@ -11,6 +11,7 @@ Usage:
 import os
 import sys
 import time
+import math
 import logging
 import argparse
 
@@ -33,7 +34,7 @@ logger = logging.getLogger("apt.monitor")
 
 def load_agent(checkpoint: str) -> DQN:
     net = DQN(state_dim())
-    net.load_state_dict(torch.load(checkpoint, map_location="cpu"))
+    net.load_state_dict(torch.load(checkpoint, map_location="cpu", weights_only=True))
     net.eval()
     logger.info("Loaded DQL agent from %s", checkpoint)
     return net
@@ -48,7 +49,17 @@ def run_monitor(checkpoint: str, interval: int = 5):
 
     try:
         while True:
-            active = fetch_active_sessions(conn)
+            try:
+                active = fetch_active_sessions(conn)
+            except Exception as exc:
+                logger.warning("DB connection lost, reconnecting: %s", exc)
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+                conn = get_conn()
+                continue
+
             for sid in active:
                 events = fetch_session_events(conn, sid, limit=50)
                 prev_count = seen_events.get(sid, 0)
@@ -62,7 +73,6 @@ def run_monitor(checkpoint: str, interval: int = 5):
                 action    = int(max(range(4), key=lambda i: q_vals[i]))
                 max_q     = max(q_vals)
                 # Normalise threat score to [0, 1] using sigmoid
-                import math
                 threat_score = 1.0 / (1.0 + math.exp(-max_q))
 
                 logger.info(
