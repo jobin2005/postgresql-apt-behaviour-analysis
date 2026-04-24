@@ -335,7 +335,7 @@ async function refresh() {
     // Table
     const tbody = document.getElementById('threatBody');
     if (!threats.length) {
-      tbody.innerHTML = '<tr><td colspan="5" class="empty">No threat events in the last 24 hours.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="6" class="empty">No threat events in the last 24 hours.</td></tr>';
       return;
     }
     tbody.innerHTML = threats.slice(0, 50).map(t => {

@@ -17,6 +17,7 @@
 #include "postmaster/bgworker.h"
 #include "storage/ipc.h"
 #include "utils/guc.h"
+#include "miscadmin.h"
 
 PG_MODULE_MAGIC;
 
@@ -28,9 +29,8 @@ static ExecutorRun_hook_type prev_ExecutorRun = NULL;
 
 static void
 apt_ExecutorRun(QueryDesc *queryDesc,
-               ScanDirection direction,
-               uint64 count,
-               bool execute_once)
+                ScanDirection direction,
+                uint64 count)
 {
     /* 
      * TOP POINT IMPLEMENTATION:
@@ -40,15 +40,15 @@ apt_ExecutorRun(QueryDesc *queryDesc,
     int pid = MyProcPid;
     const char *query = queryDesc->sourceText;
 
-    /* 
-     * TODO: Link with kernel module here using PID 
-     * (as suggested by Mr. Sankaran)
-     */
+    /* VERIFICATION LOG: This will show up in your PostgreSQL server logs */
+    if (query != NULL) {
+        elog(INFO, "[APT-GUARD] Intercepted Query (PID: %d): %s", pid, query);
+    }
 
     if (prev_ExecutorRun)
-        prev_ExecutorRun(queryDesc, direction, count, execute_once);
+        prev_ExecutorRun(queryDesc, direction, count);
     else
-        standard_ExecutorRun(queryDesc, direction, count, execute_once);
+        standard_ExecutorRun(queryDesc, direction, count);
 }
 
 void
@@ -58,7 +58,7 @@ _PG_init(void)
 
     /* Register the hook */
     prev_ExecutorRun = ExecutorRun_hook;
-    ExecutorRun_hook = apt_ExecutorRun;
+    ExecutorRun_hook = (ExecutorRun_hook_type) apt_ExecutorRun;
 
     /* 
      * Launch Background Worker (APT DQL Monitor)

@@ -86,10 +86,16 @@ def _hash_query(cmd, schema, obj, high_entropy=False):
 
 
 def _insert_session(cur, user, label, base_time):
+    # Simulate a realistic Linux PID for the backend
+    mock_pid = random.randint(1000, 32768)
+    # Simulate an origin process
+    origins = ["/usr/bin/psql", "/usr/bin/python3", "bash (interactive)", "/usr/sbin/apache2"]
+    origin = random.choice(origins) if label > 0 else "/usr/bin/web_app"
+
     cur.execute(
-        """INSERT INTO apt_sessions (user_name, client_addr, start_time, threat_label)
-           VALUES (%s, %s, %s, %s) RETURNING session_id""",
-        (user, "192.168.1." + str(random.randint(1, 254)), base_time, label),
+        """INSERT INTO apt_sessions (user_name, client_addr, start_time, threat_label, backend_pid, origin_process)
+           VALUES (%s, %s, %s, %s, %s, %s) RETURNING session_id""",
+        (user, "192.168.1." + str(random.randint(1, 254)), base_time, label, mock_pid, origin),
     )
     return cur.fetchone()[0]
 

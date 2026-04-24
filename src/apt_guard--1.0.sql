@@ -1,0 +1,1 @@
+-- Empty SQL file for version 1.0 (no SQL objects needed for this extension yet)

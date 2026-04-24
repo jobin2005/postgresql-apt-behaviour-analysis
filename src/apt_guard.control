@@ -1,0 +1,5 @@
+# apt_guard extension
+comment = 'APT Behavioral Analysis Security Guard'
+default_version = '1.0'
+module_pathname = '$libdir/apt_guard'
+relocatable = true

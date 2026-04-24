@@ -54,7 +54,7 @@ def get_threats():
             cur.execute(
                 """SELECT a.alert_id, a.session_id, a.created_at,
                           a.threat_score, a.action_taken, a.q_values,
-                          s.user_name, s.client_addr
+                          s.user_name, s.client_addr, s.origin_process
                    FROM apt_alerts a
                    JOIN apt_sessions s ON a.session_id = s.session_id
                    WHERE a.created_at >= %s

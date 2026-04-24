@@ -12,6 +12,8 @@ CREATE TABLE IF NOT EXISTS apt_sessions (
     client_addr  INET,
     start_time   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     end_time     TIMESTAMPTZ,
+    backend_pid  INTEGER,        -- Linux PID of the Postgres backend
+    origin_process TEXT,         -- Resolved OS process name (e.g., psql, bash)
     threat_label INTEGER DEFAULT 0  -- 0=benign, 1=suspicious, 2=APT
 );
 

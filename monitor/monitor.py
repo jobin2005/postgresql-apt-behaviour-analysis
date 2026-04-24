@@ -14,6 +14,7 @@ import time
 import math
 import logging
 import argparse
+import psutil
 
 import torch
 from dotenv import load_dotenv
@@ -40,6 +41,30 @@ def load_agent(checkpoint: str) -> DQN:
     return net
 
 
+def update_process_lineage(conn, session_id, pid):
+    """Resolve a Linux PID to a process name and update the session record."""
+    if not pid:
+        return
+    
+    try:
+        proc = psutil.Process(pid)
+        name = proc.name()
+        # Include full path if possible
+        exe = proc.exe()
+        origin = f"{name} ({exe})"
+    except (psutil.NoSuchProcess, psutil.AccessDenied):
+        origin = "unknown process"
+    except Exception:
+        origin = "simulation process"
+
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE apt_sessions SET backend_pid = %s, origin_process = %s WHERE session_id = %s",
+            (pid, origin, session_id)
+        )
+    conn.commit()
+
+
 def run_monitor(checkpoint: str, interval: int = 5):
     agent = load_agent(checkpoint)
     conn  = get_conn()
@@ -61,6 +86,12 @@ def run_monitor(checkpoint: str, interval: int = 5):
                 continue
 
             for sid in active:
+                # Resolve lineage if not already done
+                # (Assuming active is a list of dicts or objects with session info)
+                if isinstance(sid, dict) and not sid.get("origin_process"):
+                    update_process_lineage(conn, sid["session_id"], sid.get("backend_pid"))
+                    sid = sid["session_id"]
+
                 events = fetch_session_events(conn, sid, limit=50)
                 prev_count = seen_events.get(sid, 0)
 
