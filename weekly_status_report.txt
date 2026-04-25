@@ -1,0 +1,14 @@
+==========
+1. Names:
+Adithyan M C, Asiya Salam, Jobin A J, Sreedeep Rajeevan
+
+2. Team Name:
+Advanced Persistent Threat (APT) Behaviour Analysis
+
+3. One bug faced and how fix is done (4 or 5 lines):
+Problem: The monitor daemon failed to detect simulated APT events due to fixed past timestamps in the simulation data. 
+Resolution: Implemented a '--live' mode in the simulation script to generate events with current timestamps. Updated the monitor daemon logic to poll for real-time events and correctly compute time-deltas within active session windows.
+
+4. GitHub link:
+https://github.com/jobin2005/postgresql-apt-behaviour-analysis
+==========
