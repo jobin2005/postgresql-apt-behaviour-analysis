@@ -113,6 +113,23 @@ To complete the "Hardened" architecture, the team will focus on the following co
 
 ---
 
+## Syncing Training Data Across the Team (Development Phase)
+Since everyone uses an isolated local database, pushing code (`git push`) does **not** push database rows. If you generate a massive "golden dataset" and want to share it with your teammates so they can train the agent:
+
+**1. Export the Data (The person who generated the data):**
+```bash
+docker compose exec db pg_dump -U postgres -d postgres --data-only --inserts > data/apt_data_seed.sql
+git add data/apt_data_seed.sql
+git commit -m "chore(data): export team training dataset"
+git push
+```
+
+**2. Import the Data (The teammates):**
+```bash
+git pull
+docker compose exec -T db psql -U postgres -d postgres < data/apt_data_seed.sql
+```
+
 ## References
 1. LogShield — Transformer-based APT Detection (arXiv:2311.05733)
 2. MAGIC — Masked Graph Representation Learning (arXiv:2310.09831)
