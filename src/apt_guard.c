@@ -30,7 +30,8 @@ static ExecutorRun_hook_type prev_ExecutorRun = NULL;
 static void
 apt_ExecutorRun(QueryDesc *queryDesc,
                 ScanDirection direction,
-                uint64 count)
+                uint64 count,
+                bool execute_once)
 {
     /* 
      * TOP POINT IMPLEMENTATION:
@@ -46,9 +47,9 @@ apt_ExecutorRun(QueryDesc *queryDesc,
     }
 
     if (prev_ExecutorRun)
-        prev_ExecutorRun(queryDesc, direction, count);
+        prev_ExecutorRun(queryDesc, direction, count, execute_once);
     else
-        standard_ExecutorRun(queryDesc, direction, count);
+        standard_ExecutorRun(queryDesc, direction, count, execute_once);
 }
 
 void
