@@ -1,0 +1,9 @@
+psycopg2-binary
+python-dotenv
+torch
+numpy
+pandas
+flask
+gymnasium
+tqdm
+psutil

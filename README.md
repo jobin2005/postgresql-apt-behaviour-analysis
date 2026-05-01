@@ -55,33 +55,34 @@ Postgre/
 
 ---
 
-## Quick Start (One-Time Setup)
+## Quick Start (Using Docker - Recommended for Team Collaboration)
 
 ### 1. Prerequisites
-```bash
-pip install torch psycopg2-binary python-dotenv flask numpy tqdm gymnasium
-```
+Ensure you have Docker and Docker Compose installed on your system.
 
-### 2. Create DB Schema
+### 2. Build and Start the System
+This command will build the custom PostgreSQL image (compiling the `apt_guard.c` extension automatically) and start the ML python service:
 ```bash
-# Using Supabase (update connection string with your credentials):
-psql "postgresql://<USER>:<PASSWORD>@<HOST>:<PORT>/postgres" -f data/schema.sql
+docker compose up --build -d
 ```
+*Note: The database schema is automatically initialized on the first run.*
 
 ### 3. Generate Training Data & Train (required at least once)
+Run these inside the ML container to prepare the agent:
 ```bash
-python simulate_apt.py --sessions 100 --apt-ratio 0.3
-python agent/train.py --episodes 300
+docker compose exec ml_service python simulate_apt.py --sessions 100 --apt-ratio 0.3
+docker compose exec ml_service python agent/train.py --episodes 300
 ```
 
 ---
 
 ## Running the System (Each Time)
 
-To start the full system (Monitor + Dashboard) in one command:
+If the containers are stopped, just start them with:
 ```bash
-python start_all.py
+docker compose up -d
 ```
+The `ml_service` container automatically runs `start_all.py` which launches the Monitor Daemon and the Flask Dashboard.
 
 ### Viewing Output
 1. **System Activity**: Watch the terminal console for session analysis logs.

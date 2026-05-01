@@ -1,0 +1,45 @@
+version: '3.8'
+
+services:
+  db:
+    build:
+      context: .
+      dockerfile: Dockerfile.postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${LOCAL_DB_PASSWORD:-postgres}
+      POSTGRES_DB: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  ml_service:
+    build:
+      context: .
+      dockerfile: Dockerfile.ml
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      # Database connection override to point to the local 'db' container
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_NAME: postgres
+      DB_USER: postgres
+      DB_PASSWORD: ${LOCAL_DB_PASSWORD:-postgres}
+      DB_SSL_MODE: disable
+    ports:
+      - "5000:5000"
+    volumes:
+      # Mount directory so host changes reflect inside if needed, but primarily 
+      # rely on checkpoint loading
+      - ./checkpoints:/app/checkpoints
+
+volumes:
+  pgdata:
