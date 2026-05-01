@@ -1,12 +1,12 @@
 # APT Behaviour Analysis in PostgreSQL — ShakthiDB Security Extension
 
 ## Team
-| Name | Role |
+| Name | Role (Phase 2 Focus) |
 |------|------|
-| Adithyan M C | DQL Model & Training |
-| Asiya Salam | Feature Engineering & Data Pipeline |
-| Jobin A J | PostgreSQL Integration & Monitor Daemon |
-| Sreedeep Rajeevan | Dashboard & Evaluation |
+| Adithyan M C | DQL Concept Drift Handling & Adaptive Learning |
+| Asiya Salam | Schema Isolation & Multi-DB Sentinel Feature Extraction |
+| Jobin A J | C-Extension (`apt_guard.c`) Native Logging & Hooking |
+| Sreedeep Rajeevan | Active Defense Execution (Rate-Limits) & Dashboard Visualization |
 
 **Affiliation:** Pravartak Technologies, IIT Madras (ShakthiDB Project)
 
@@ -99,6 +99,17 @@ The `ml_service` container automatically runs `start_all.py` which launches the 
 | Action space | Discrete(4): No-op, Alert, Rate-Limit, Block |
 | Algorithm | Double DQN with experience replay |
 | Reward | +10 correct block, -8 missed APT, −2 false positive |
+
+---
+
+## Roadmap (Next 2 Months)
+
+To complete the "Hardened" architecture, the team will focus on the following core deliverables over the next 8 weeks:
+
+1.  **C-Extension Native Logging (Jobin)**: Transition from simulated Python data injection to direct SQL interception in `apt_guard.c`. The extension must reliably parse `MyProcPid` and `queryDesc->sourceText` and insert it into `apt_events` with negligible latency.
+2.  **Sentinel Pattern & Schema Isolation (Asiya)**: Ensure the extension can monitor multiple databases (e.g., University DB) while securely isolating the threat-analysis tables within a dedicated `apt_guard` schema.
+3.  **Functional Rate-Limiting Responses (Sreedeep)**: Upgrade the `rate_limit` action placeholder in `actions.py` to enforce actual database-level connection throttling or `pg_sleep` injections for suspicious users.
+4.  **Concept Drift & Adaptive Evasion (Adithyan)**: Implement mechanisms for the DQL Agent to recognize when attackers change their methodology (concept drift) and continuously fine-tune the model against evolving APT behaviour.
 
 ---
 
