@@ -70,7 +70,7 @@ def run_monitor(checkpoint: str, interval: int = 5):
     conn  = get_conn()
     logger.info("APT Monitor started. Poll interval: %ds", interval)
 
-    seen_events: dict[int, int] = {}   # session_id → last event count seen
+    seen_events: dict[int, int] = {}   # session_id → last event_id seen
 
     try:
         while True:
@@ -87,18 +87,27 @@ def run_monitor(checkpoint: str, interval: int = 5):
 
             for sid in active:
                 # Resolve lineage if not already done
-                # (Assuming active is a list of dicts or objects with session info)
                 if isinstance(sid, dict) and not sid.get("origin_process"):
                     update_process_lineage(conn, sid["session_id"], sid.get("backend_pid"))
                     sid = sid["session_id"]
 
-                events = fetch_session_events(conn, sid, limit=50)
-                prev_count = seen_events.get(sid, 0)
+                last_id = seen_events.get(sid, 0)
+                
+                # Step 1: Check for NEW event IDs since we last looked
+                # (using a tiny limit=1 for speed)
+                new_check = fetch_session_events(conn, sid, limit=1, since_id=last_id)
+                if not new_check:
+                    continue   # no new activity
 
-                if len(events) == prev_count:
-                    continue   # no new events
+                # Step 2: Activity detected! Fetch FULL context window (last 50) for the AI
+                events = fetch_session_events(conn, sid, limit=50, since_id=0)
+                
+                if not events:
+                    continue
 
-                seen_events[sid] = len(events)
+                # Update the last seen event_id for this session to mark progress
+                seen_events[sid] = events[-1]["event_id"]
+                
                 state     = extract_state(events)
                 q_vals    = agent.q_values(state)
                 action    = int(max(range(4), key=lambda i: q_vals[i]))
@@ -107,7 +116,7 @@ def run_monitor(checkpoint: str, interval: int = 5):
                 threat_score = 1.0 / (1.0 + math.exp(-max_q))
 
                 logger.info(
-                    "session=%d  events=%d  action=%d  threat=%.3f  q=%s",
+                    "session=%d  context_len=%d  action=%d  threat=%.3f  q=%s",
                     sid, len(events), action, threat_score,
                     [round(q, 2) for q in q_vals],
                 )

@@ -31,23 +31,40 @@ def get_conn():
 
 
 # ── DB-based ingestion ────────────────────────────────────────────────────────
-def fetch_session_events(conn, session_id: int, limit: int = 50) -> list[dict]:
+def fetch_session_events(conn, session_id: int, limit: int = 50, since_id: int = 0) -> list[dict]:
     """
-    Return the most recent `limit` events for a session as a list of dicts.
+    Return events for a session. If since_id is given, returns events newer than that.
+    Else returns the most recent `limit` events.
     """
     with conn.cursor() as cur:
-        cur.execute(
-            """SELECT event_time, command_type, object_schema, object_name,
-                      rows_affected, duration_ms, query_hash
-               FROM apt_events
-               WHERE session_id = %s
-               ORDER BY event_time DESC
-               LIMIT %s""",
-            (session_id, limit),
-        )
+        if since_id > 0:
+            cur.execute(
+                """SELECT event_time, command_type, object_schema, object_name,
+                          rows_affected, duration_ms, query_hash, event_id
+                   FROM apt_events
+                   WHERE session_id = %s AND event_id > %s
+                   ORDER BY event_id ASC""",
+                (session_id, since_id),
+            )
+        else:
+            cur.execute(
+                """SELECT event_time, command_type, object_schema, object_name,
+                          rows_affected, duration_ms, query_hash, event_id
+                   FROM apt_events
+                   WHERE session_id = %s
+                   ORDER BY event_time DESC
+                   LIMIT %s""",
+                (session_id, limit),
+            )
         rows = cur.fetchall()
+    
     events = []
-    for row in reversed(rows):   # oldest first
+    # If using limit, rows are DESC (newest first), so we reverse to get oldest first
+    # If using since_id, rows are already ASC.
+    if since_id == 0:
+        rows = reversed(rows)
+
+    for row in rows:
         events.append({
             "event_time":    row[0],
             "command_type":  row[1],
@@ -56,6 +73,7 @@ def fetch_session_events(conn, session_id: int, limit: int = 50) -> list[dict]:
             "rows_affected": row[4],
             "duration_ms":   row[5],
             "query_hash":    row[6],
+            "event_id":      row[7],
         })
     return events
 
