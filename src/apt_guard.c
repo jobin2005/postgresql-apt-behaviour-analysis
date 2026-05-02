@@ -18,14 +18,17 @@
 #include "storage/ipc.h"
 #include "utils/guc.h"
 #include "miscadmin.h"
+#include "executor/spi.h"
+#include "utils/builtins.h"
+#include "lib/stringinfo.h"
 
 PG_MODULE_MAGIC;
 
+static bool in_logger = false;
+static ExecutorRun_hook_type prev_ExecutorRun = NULL;
+
 void _PG_init(void);
 void _PG_fini(void);
-
-/* Hook for query execution */
-static ExecutorRun_hook_type prev_ExecutorRun = NULL;
 
 static void
 apt_ExecutorRun(QueryDesc *queryDesc,
@@ -34,16 +37,52 @@ apt_ExecutorRun(QueryDesc *queryDesc,
                 bool execute_once)
 {
     /* 
-     * TOP POINT IMPLEMENTATION:
-     * Capture the Query and the current Process PID to send to 
-     * the DQL Behavioral Agent.
+     * Capture the Query and the current Process PID.
      */
     int pid = MyProcPid;
     const char *query = queryDesc->sourceText;
 
-    /* VERIFICATION LOG: This will show up in your PostgreSQL server logs */
-    if (query != NULL) {
-        elog(INFO, "[APT-GUARD] Intercepted Query (PID: %d): %s", pid, query);
+    /* RECURSION GUARD: Don't log our own logging queries! */
+    if (query != NULL && !in_logger) 
+    {
+        in_logger = true;
+
+        PG_TRY();
+        {
+            int ret;
+            StringInfoData buf;
+
+            /* SPI LOGGING */
+            if ((ret = SPI_connect()) == SPI_OK_CONNECT)
+            {
+                initStringInfo(&buf);
+                
+                /* Construct the internal logging query */
+                appendStringInfo(&buf, 
+                    "INSERT INTO apt_events (session_id, command_type, rows_affected, query_hash, duration_ms) "
+                    "VALUES (1, '%s', %llu, 'hash_placeholder', 0.1);",
+                    (queryDesc->operation == CMD_SELECT ? "SELECT" : 
+                     queryDesc->operation == CMD_INSERT ? "INSERT" :
+                     queryDesc->operation == CMD_UPDATE ? "UPDATE" :
+                     queryDesc->operation == CMD_DELETE ? "DELETE" : "OTHER"),
+                    (unsigned long long) count
+                );
+
+                ret = SPI_execute(buf.data, false, 0);
+                
+                SPI_finish();
+                pfree(buf.data);
+            }
+        }
+        PG_CATCH();
+        {
+            /* If an error occurs, we must ensure in_logger is reset */
+            in_logger = false;
+            PG_RE_THROW();
+        }
+        PG_END_TRY();
+
+        in_logger = false;
     }
 
     if (prev_ExecutorRun)
@@ -63,7 +102,9 @@ _PG_init(void)
 
     /* 
      * Launch Background Worker (APT DQL Monitor)
+     * NOTE: Currently disabled because apt_main is not yet defined.
      */
+    /*
     memset(&worker, 0, sizeof(worker));
     sprintf(worker.bgw_name, "APT Guard Monitor");
     worker.bgw_flags = BGWORKER_SHMEM_ACCESS | BGWORKER_BACKEND_DATABASE_CONNECTION;
@@ -74,6 +115,7 @@ _PG_init(void)
     worker.bgw_notify_pid = 0;
 
     RegisterBackgroundWorker(&worker);
+    */
 }
 
 void
