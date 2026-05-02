@@ -76,7 +76,7 @@ def update(policy_net, target_net, optimizer, replay_buf):
     return loss.item()
 
 
-def train(episodes: int):
+def train(episodes: int, resume_from: str = None):
     CHECKPOINT_DIR.mkdir(exist_ok=True)
     conn    = get_conn()
     dataset = fetch_all_labelled_sessions(conn)
@@ -89,6 +89,11 @@ def train(episodes: int):
     env         = APTEnvironment(dataset)
     policy_net  = DQN(state_dim()).to(DEVICE)
     target_net  = DQN(state_dim()).to(DEVICE)
+
+    if resume_from and os.path.exists(resume_from):
+        print(f"[Train] Resuming from checkpoint: {resume_from}")
+        policy_net.load_state_dict(torch.load(resume_from, map_location=DEVICE))
+    
     target_net.load_state_dict(policy_net.state_dict())
     target_net.eval()
     optimizer   = optim.Adam(policy_net.parameters(), lr=LR)
@@ -189,9 +194,10 @@ if __name__ == "__main__":
     parser.add_argument("--episodes",   type=int,  default=300)
     parser.add_argument("--eval",       action="store_true")
     parser.add_argument("--checkpoint", type=str,  default="checkpoints/dqn_best.pt")
+    parser.add_argument("--resume",     action="store_true", help="Resume training from existing checkpoint")
     args = parser.parse_args()
 
     if args.eval:
         evaluate(args.checkpoint)
     else:
-        train(args.episodes)
+        train(args.episodes, resume_from=args.checkpoint if args.resume else None)
