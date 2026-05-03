@@ -1,37 +1,75 @@
--- APT Guard Extension Schema v1.0
+-- APT Guard Extension Schema v1.1
+-- Optimized for Analytical Monitoring & User Baselining
 
--- Table to store active and historical database sessions
-CREATE TABLE IF NOT EXISTS apt_sessions (
-    session_id SERIAL PRIMARY KEY,
-    user_name TEXT,
-    client_addr TEXT,
-    start_time TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    end_time TIMESTAMP WITH TIME ZONE,
-    process_id INT,
-    process_name TEXT,
-    threat_level INT DEFAULT 0
+-- ===============================
+-- APT EVENTS TABLE (RAW INPUT)
+-- ===============================
+CREATE TABLE IF NOT EXISTS apt_events (
+    event_id SERIAL PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    session_hint TEXT,           -- PID or Tag
+    query_type TEXT,
+    query_text TEXT,
+    table_names TEXT[],          -- multiple tables per query
+    event_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    duration_ms FLOAT,
+    rows_accessed INT,
+    success_flag BOOLEAN DEFAULT TRUE,
+    error_code TEXT,
+    ip_address TEXT
 );
 
--- Table to store high-level security alerts
+-- ===============================
+-- APT SESSIONS TABLE (CORE LOGIC)
+-- ===============================
+CREATE TABLE IF NOT EXISTS apt_sessions (
+    session_id SERIAL PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    start_time TIMESTAMP,
+    end_time TIMESTAMP,
+    query_count INT DEFAULT 0,
+    failed_query_count INT DEFAULT 0,
+    total_rows_accessed INT DEFAULT 0,
+    unique_tables INT DEFAULT 0,
+    privilege_escalation_flag BOOLEAN DEFAULT FALSE,
+    anomaly_score FLOAT DEFAULT 0,
+    session_duration FLOAT DEFAULT 0  -- seconds
+);
+
+-- ===============================
+-- USER PROFILE TABLE (BASELINE)
+-- ===============================
+CREATE TABLE IF NOT EXISTS apt_user_profile (
+    user_id TEXT PRIMARY KEY,
+    avg_queries_per_session FLOAT DEFAULT 0,
+    avg_rows_accessed FLOAT DEFAULT 0,
+    avg_session_duration FLOAT DEFAULT 0,
+    normal_tables_accessed INT DEFAULT 0
+);
+
+-- ===============================
+-- SEQUENCE PATTERNS TABLE
+-- ===============================
+CREATE TABLE IF NOT EXISTS apt_sequence_patterns (
+    pattern_id SERIAL PRIMARY KEY,
+    sequence TEXT UNIQUE,
+    frequency INT DEFAULT 0,
+    risk_score FLOAT DEFAULT 0
+);
+
+-- ===============================
+-- ALERTS TABLE (OUTPUT)
+-- ===============================
 CREATE TABLE IF NOT EXISTS apt_alerts (
     alert_id SERIAL PRIMARY KEY,
     session_id INT REFERENCES apt_sessions(session_id),
-    alert_time TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    threat_score DOUBLE PRECISION,
+    threat_level TEXT,
     action_taken TEXT,
-    q_values TEXT,
-    is_resolved BOOLEAN DEFAULT FALSE
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- Table to store granular SQL event logs for sequence analysis
-CREATE TABLE IF NOT EXISTS apt_events (
-    event_id SERIAL PRIMARY KEY,
-    session_id INT, -- Not forced FK to allow flexible log insertion
-    event_time TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    command_type TEXT,
-    object_schema TEXT,
-    object_name TEXT,
-    rows_affected BIGINT,
-    query_hash TEXT,
-    duration_ms DOUBLE PRECISION
-);
+-- Indexes for performance
+CREATE INDEX IF NOT EXISTS idx_events_user ON apt_events(user_id);
+CREATE INDEX IF NOT EXISTS idx_events_time ON apt_events(event_time);
+CREATE INDEX IF NOT EXISTS idx_sessions_user ON apt_sessions(user_id);
+CREATE INDEX IF NOT EXISTS idx_alerts_time ON apt_alerts(created_at);
