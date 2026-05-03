@@ -102,33 +102,64 @@ The `ml_service` container automatically runs `start_all.py` which launches the 
 
 ---
 
-## Roadmap (Next 2 Months)
+---
 
-To complete the "Hardened" architecture, the team will focus on the following core deliverables over the next 8 weeks:
+## 🚀 Community Testing (How to Try It)
+You have two ways to test this extension on your own database (Bank, Office, University):
 
-1.  **C-Extension Native Logging (Jobin)**: Transition from simulated Python data injection to direct SQL interception in `apt_guard.c`. The extension must reliably parse `MyProcPid` and `queryDesc->sourceText` and insert it into `apt_events` with negligible latency.
-2.  **Sentinel Pattern & Schema Isolation (Asiya)**: Ensure the extension can monitor multiple databases (e.g., University DB) while securely isolating the threat-analysis tables within a dedicated `apt_guard` schema.
-3.  **Functional Rate-Limiting Responses (Sreedeep)**: Upgrade the `rate_limit` action placeholder in `actions.py` to enforce actual database-level connection throttling or `pg_sleep` injections for suspicious users.
-4.  **Concept Drift & Adaptive Evasion (Adithyan)**: Implement mechanisms for the DQL Agent to recognize when attackers change their methodology (concept drift) and continuously fine-tune the model against evolving APT behaviour.
+### Option 1: The "Easy" Way (Docker)
+We recommend this for teammates and new users.
+```bash
+# 1. Start everything (DB + AI + Dashboard)
+docker compose up --build -d
+
+# 2. Activate the extension in the database
+docker compose exec db psql -U postgres -d postgres -c "CREATE EXTENSION apt_guard;"
+```
+*Result: Open your dashboard at **http://localhost:5000***
+
+### Option 2: The "Manual" Way (Direct Linux)
+Use this if you already have a local PostgreSQL 18 installation:
+```bash
+# 1. Compile and install
+cd src/
+make && sudo make install
+
+# 2. Add to your configuration (/etc/postgresql/18/main/postgresql.conf)
+# Set: shared_preload_libraries = 'apt_guard'
+
+# 3. Restart Postgres
+sudo systemctl restart postgresql
+```
+*Step 4: Go into any database and run `CREATE EXTENSION apt_guard;`*
 
 ---
 
-## Syncing Training Data Across the Team (Development Phase)
-Since everyone uses an isolated local database, pushing code (`git push`) does **not** push database rows. If you generate a massive "golden dataset" and want to share it with your teammates so they can train the agent:
+## 🏗️ Project Architecture
+The system follows a **Sentinel Pattern**:
+*   **The Guard** (`apt_guard.c`): Direct SQL interception using PostgreSQL hooks.
+*   **The Brain** (`monitor.py`): A DQL agent that processes a 150-dim feature vector (10 queries x 15 features).
+*   **The Voice** (`api/app.py`): A real-time dashboard visualizing threats as they happen.
 
-**1. Export the Data (The person who generated the data):**
-```bash
-docker compose exec db pg_dump -U postgres -d postgres --data-only --inserts > data/apt_data_seed.sql
-git add data/apt_data_seed.sql
-git commit -m "chore(data): export team training dataset"
-git push
-```
+---
 
-**2. Import the Data (The teammates):**
-```bash
-git pull
-docker compose exec -T db psql -U postgres -d postgres < data/apt_data_seed.sql
-```
+## ✅ Milestones Completed
+1.  **[x] Native Logging**: Successfully implemented `ExecutorRun` and `ProcessUtility` hooks to capture all SQL actions.
+2.  **[x] AI Feature Extraction**: Implemented a 150-dimension vector for deep session analysis.
+3.  **[x] Multi-DB Support**: The extension can now be installed in any database independently.
+4.  **[x] Docker Orchestration**: Automated the entire database + monitor + dashboard setup.
+
+---
+
+## 🔮 Future Roadmap (Next Phases)
+*   **Functional Rate-Limiting**: Enforce actual database-level connection throttling for blocked sessions.
+*   **Concept Drift Detection**: Adapt the DQL models as attacker behavior changes over time.
+*   **Dashboard Enhancements**: Add user-specific forensic views and historic threat replay.
+
+---
+
+## 📡 Viewing the Dashboard
+Open your browser at **http://localhost:5000** to see the live APT Shield dashboard.
 
 ## References
 1. LogShield — Transformer-based APT Detection (arXiv:2311.05733)
