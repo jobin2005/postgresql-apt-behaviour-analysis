@@ -19,22 +19,9 @@ DASHBOARD_SCRIPT = ROOT / "api" / "app.py"
 CHECKPOINT = ROOT / "checkpoints" / "dqn_best.pt"
 
 def main():
-    if not CHECKPOINT.exists():
-        print(f"Error: Model checkpoint not found at {CHECKPOINT}")
-        print("Please train the agent first: python agent/train.py --episodes 300")
-        sys.exit(1)
-
     print(" Starting APT Shield System...")
     
-    # 1. Start the Monitor Daemon
-    print(f" Launching Monitor Daemon (polling DB for threats)...")
-    monitor_proc = subprocess.Popen(
-        [sys.executable, str(MONITOR_SCRIPT), "--checkpoint", str(CHECKPOINT)],
-        stdout=sys.stdout,
-        stderr=sys.stderr,
-    )
-
-    # 2. Start the Flask Dashboard
+    # 1. Start the Flask Dashboard immediately
     print(f"Launching Dashboard at http://localhost:5000 ...")
     env = os.environ.copy()
     env["PYTHONPATH"] = str(ROOT) # ensure absolute imports work
@@ -46,21 +33,45 @@ def main():
         env=env
     )
 
-    print("\nSystem is RUNNING. Press Ctrl+C to stop everything.\n")
+    monitor_proc = None
+
+    if not CHECKPOINT.exists():
+        print(f"\n[!] Warning: Model checkpoint not found at {CHECKPOINT}")
+        print("The Monitor Daemon is paused. To start it, generate data and train FIRST:")
+        print("  1. docker compose exec ml_service python data/generate_training_data.py --sessions 5000")
+        print("  2. docker compose exec ml_service python agent/train.py --episodes 2000")
+        print("The Monitor will automatically start once training completes.\n")
+
+    print("System is RUNNING. Press Ctrl+C to stop everything.\n")
 
     try:
         while True:
-            time.sleep(1)
-            if monitor_proc.poll() is not None:
-                print("Error: Monitor process died.")
-                break
+            time.sleep(2)
+            
+            # Check if dashboard died
             if dashboard_proc.poll() is not None:
                 print("Error: Dashboard process died.")
                 break
+                
+            # If monitor hasn't started but checkpoint now exists, start it
+            if monitor_proc is None and CHECKPOINT.exists():
+                print(f"\n Detected checkpoint at {CHECKPOINT}! Launching Monitor Daemon...")
+                monitor_proc = subprocess.Popen(
+                    [sys.executable, str(MONITOR_SCRIPT)],
+                    stdout=sys.stdout,
+                    stderr=sys.stderr,
+                )
+                
+            # If monitor started and then died, report it
+            if monitor_proc is not None and monitor_proc.poll() is not None:
+                print("Error: Monitor process died.")
+                break
+
     except KeyboardInterrupt:
         print("\n Shutting down...")
     finally:
-        monitor_proc.terminate()
+        if monitor_proc is not None:
+            monitor_proc.terminate()
         dashboard_proc.terminate()
         print("Done.")
 
