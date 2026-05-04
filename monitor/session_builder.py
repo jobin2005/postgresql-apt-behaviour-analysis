@@ -34,7 +34,7 @@ def get_conn():
 def fetch_events(conn):
     with conn.cursor() as cur:
         cur.execute("""
-            SELECT user_id, event_time, query_type,
+            SELECT event_id,user_id, event_time, query_type,
                    query_text, rows_accessed,
                    success_flag, table_names
             FROM apt_events
@@ -45,14 +45,15 @@ def fetch_events(conn):
     events_by_user = defaultdict(list)
 
     for r in rows:
-        events_by_user[r[0]].append({
-            "time": r[1],
-            "type": r[2],
-            "query": r[3] or "",
-            "rows": r[4] or 0,
-            "success": r[5],
-            "tables": r[6] or []
-        })
+        events_by_user[r[1]].append({
+    "event_id": r[0],   
+    "time": r[2],
+    "type": r[3],
+    "query": r[4] or "",
+    "rows": r[5] or 0,
+    "success": r[6],
+    "tables": r[7] or []
+})
 
     return events_by_user
 
@@ -72,7 +73,7 @@ def build_sessions(events):
         last_event = current_session[-1]
         time_gap = ev["time"] - last_event["time"]
 
-        # 🔥 HYBRID CONDITION
+    
         if len(current_session) >= WINDOW_SIZE or time_gap > TIME_THRESHOLD:
             sessions.append(current_session)
             current_session = [ev]
@@ -194,6 +195,7 @@ def insert_session(conn, data):
                 anomaly_score, session_duration
             )
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING session_id
         """, (
             data["user_id"],
             data["start"],
@@ -206,6 +208,24 @@ def insert_session(conn, data):
             data["anomaly_score"],
             data["duration"]
         ))
+
+        session_id = cur.fetchone()[0] 
+    conn.commit()
+    return session_id
+
+def update_event_sessions(conn, session_id, session):
+    event_ids = [e["event_id"] for e in session]
+
+    if not event_ids:
+        return
+
+    with conn.cursor() as cur:
+        cur.execute("""
+            UPDATE apt_events
+            SET session_id = %s
+            WHERE event_id = ANY(%s)
+        """, (session_id, event_ids))
+
     conn.commit()
 
 
@@ -221,7 +241,10 @@ def run_builder():
 
         for s in sessions:
             data = compute_features(conn, user, s)
-            insert_session(conn, data)
+
+            session_id = insert_session(conn, data)   # create session
+ 
+            update_event_sessions(conn, session_id, s)  
 
     conn.close()
 
