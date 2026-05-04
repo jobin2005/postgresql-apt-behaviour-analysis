@@ -1,0 +1,28 @@
+FROM postgres:15-bullseye
+
+# Install build dependencies for PostgreSQL extensions
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    postgresql-server-dev-15 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set up build directory
+WORKDIR /usr/src/extension
+
+# Copy extension source files
+# We use the explicit files requested in Makefile
+COPY src/Makefile ./
+COPY src/apt_guard.c ./
+COPY src/apt_guard--1.0.sql ./
+# Copy control file if it exists, otherwise it might be named differently
+COPY src/apt_guard.control ./
+
+# Build and install the extension
+RUN make && make install
+
+# Copy initialization script
+# This script will be executed when the container starts for the first time
+COPY data/schema.sql /docker-entrypoint-initdb.d/01_schema.sql
+
+# Ensure that the extension is preloaded by configuring postgresql.conf
+CMD ["postgres", "-c", "shared_preload_libraries=apt_guard"]
