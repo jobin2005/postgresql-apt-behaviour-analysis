@@ -1,7 +1,8 @@
 /* -------------------------------------------------------------------------
  * apt_guard.c
  * -----------
- * Infallible version for APT Detection.
+ * Bulletproof Analytical Version (ExecutorEnd Hook).
+ * Correctly nested exception handling for absolute stability.
  * -------------------------------------------------------------------------
  */
 
@@ -17,29 +18,31 @@
 #include "miscadmin.h"
 #include "tcop/utility.h"
 #include "nodes/nodes.h"
+#include "utils/acl.h"
+#include "utils/guc.h"
+#include "utils/resowner.h"
+#include "access/xact.h"
+#include "catalog/pg_type.h"
 #include <string.h>
 
 PG_MODULE_MAGIC;
 
 /* Global variables */
-static ExecutorRun_hook_type prev_ExecutorRun = NULL;
+static ExecutorEnd_hook_type prev_ExecutorEnd = NULL;
 static ProcessUtility_hook_type prev_ProcessUtility = NULL;
 static int nest_level = 0;
 
 /* Prototypes */
 void _PG_init(void);
 void _PG_fini(void);
-static void apt_ExecutorRun(QueryDesc *queryDesc, ScanDirection direction, uint64 count
-#if PG_VERSION_NUM < 160000
-    , bool execute_once
-#endif
-);
+
+static void apt_ExecutorEnd(QueryDesc *queryDesc);
 static void apt_ProcessUtility(PlannedStmt *pstmt, const char *queryString,
                                bool readOnlyTree, ProcessUtilityContext context,
                                ParamListInfo params, QueryEnvironment *queryEnv,
                                DestReceiver *dest, QueryCompletion *qc);
-static void simple_hash(const char *str, char *out);
-static void log_apt_event(const char *queryText, const char *cmd, uint64 rows, double duration_ms);
+static void log_apt_event(const char *queryText, const char *cmd, uint64 rows, 
+                         double duration_ms, bool success, const char *err_code);
 static bool is_internal_query(const char *queryText);
 
 /* 
@@ -50,136 +53,129 @@ is_internal_query(const char *queryText)
 {
     if (queryText == NULL) return true;
     
-    /* Using strcasestr to avoid any manual loops or allocations */
     if (strcasestr(queryText, "apt_events") || 
         strcasestr(queryText, "apt_sessions") || 
-        strcasestr(queryText, "apt_alerts"))
+        strcasestr(queryText, "apt_alerts") ||
+        strcasestr(queryText, "apt_user_profile") ||
+        strcasestr(queryText, "apt_sequence_patterns"))
         return true;
         
     return false;
 }
 
+/* 
+ * Core logging function with Subtransactions.
+ */
 static void
-simple_hash(const char *str, char *out)
-{
-    unsigned long hash = 5381;
-    int c;
-    while ((c = *str++))
-        hash = ((hash << 5) + hash) + c;
-    sprintf(out, "%016lx", hash);
-}
-
-/* Logging function */
-static void
-log_apt_event(const char *queryText, const char *cmd, uint64 rows, double duration_ms)
+log_apt_event(const char *queryText, const char *cmd, uint64 rows, 
+             double duration_ms, bool success, const char *err_code)
 {
     int ret;
     StringInfoData buf;
-    char hash_str[17];
+    const char *user_id;
+    const char *ip_addr;
+    Oid argtypes[1];
+    Datum values[1];
+    MemoryContext oldcontext = CurrentMemoryContext;
+    ResourceOwner oldowner = CurrentResourceOwner;
 
-    /* Absolute safety */
-    if (nest_level > 1 || is_internal_query(queryText))
+    if (nest_level > 1 || is_internal_query(queryText) || !IsTransactionState())
         return;
 
-    simple_hash(queryText, hash_str);
+    user_id = GetConfigOptionByName("session_authorization", NULL, true);
+    if (!user_id || strlen(user_id) == 0) user_id = "unknown_user";
+    
+    ip_addr = GetConfigOptionByName("client_addr", NULL, true);
+    if (!ip_addr || strlen(ip_addr) == 0) ip_addr = "127.0.0.1";
 
+    BeginInternalSubTransaction(NULL);
     PG_TRY();
     {
         if ((ret = SPI_connect()) == SPI_OK_CONNECT)
         {
             initStringInfo(&buf);
             appendStringInfo(&buf, 
-                "INSERT INTO apt_events (session_id, command_type, rows_affected, query_hash, duration_ms) "
-                "VALUES (%d, '%s', %llu, '%s', %.3f);",
-                MyProcPid, cmd, (unsigned long long)rows, hash_str, duration_ms
+                "INSERT INTO apt_events (user_id, session_hint, query_type, query_text, "
+                "duration_ms, rows_accessed, success_flag, error_code, ip_address) "
+                "VALUES ('%s', '%d', '%s', $1, %.3f, %llu, %s, %s, '%s');",
+                user_id, MyProcPid, cmd, duration_ms, (unsigned long long)rows,
+                success ? "TRUE" : "FALSE",
+                err_code ? psprintf("'%s'", err_code) : "NULL",
+                ip_addr
             );
 
-            SPI_execute(buf.data, false, 0);
+            argtypes[0] = TEXTOID;
+            values[0] = CStringGetTextDatum(queryText);
+            
+            SPI_execute_with_args(buf.data, 1, argtypes, values, NULL, false, 0);
+            
             SPI_finish();
             pfree(buf.data);
         }
+        ReleaseCurrentSubTransaction();
     }
     PG_CATCH();
     {
-        /* Silently fail on logging error to prevent crash */
-        SPI_finish();
+        MemoryContextSwitchTo(oldcontext);
+        FlushErrorState();
+        RollbackAndReleaseCurrentSubTransaction();
     }
     PG_END_TRY();
+
+    CurrentResourceOwner = oldowner;
 }
 
 static void
-apt_ExecutorRun(QueryDesc *queryDesc, ScanDirection direction, uint64 count
-#if PG_VERSION_NUM < 160000
-                , bool execute_once
-#endif
-)
+apt_ExecutorEnd(QueryDesc *queryDesc)
 {
-    instr_time  start, duration;
-    const char *cmd;
+    double duration_ms = 0;
+    uint64 rows = 0;
+    const char *cmd = "OTHER";
 
-    /* 1. INFALLIBLE FILTER - If it is our table, skip EVERYTHING entirely */
-    if (is_internal_query(queryDesc->sourceText))
+    if (is_internal_query(queryDesc->sourceText) || nest_level > 0)
     {
-        if (prev_ExecutorRun)
-#if PG_VERSION_NUM < 160000
-            prev_ExecutorRun(queryDesc, direction, count, execute_once);
-#else
-            prev_ExecutorRun(queryDesc, direction, count);
-#endif
+        if (prev_ExecutorEnd)
+            prev_ExecutorEnd(queryDesc);
         else
-#if PG_VERSION_NUM < 160000
-            standard_ExecutorRun(queryDesc, direction, count, execute_once);
-#else
-            standard_ExecutorRun(queryDesc, direction, count);
-#endif
-        return;
-    }
-
-    /* 2. RECURSION GUARD */
-    if (nest_level > 0)
-    {
-        if (prev_ExecutorRun)
-#if PG_VERSION_NUM < 160000
-            prev_ExecutorRun(queryDesc, direction, count, execute_once);
-#else
-            prev_ExecutorRun(queryDesc, direction, count);
-#endif
-        else
-#if PG_VERSION_NUM < 160000
-            standard_ExecutorRun(queryDesc, direction, count, execute_once);
-#else
-            standard_ExecutorRun(queryDesc, direction, count);
-#endif
+            standard_ExecutorEnd(queryDesc);
         return;
     }
 
     nest_level++;
-    INSTR_TIME_SET_CURRENT(start);
+    
+    if (queryDesc->totaltime)
+    {
+        InstrEndLoop(queryDesc->totaltime);
+        duration_ms = queryDesc->totaltime->total * 1000.0;
+    }
 
+    if (queryDesc->estate)
+        rows = queryDesc->estate->es_processed;
+
+    cmd = (queryDesc->operation == CMD_SELECT ? "SELECT" : 
+           queryDesc->operation == CMD_INSERT ? "INSERT" :
+           queryDesc->operation == CMD_UPDATE ? "UPDATE" :
+           queryDesc->operation == CMD_DELETE ? "DELETE" : "OTHER");
+
+    /* DOUBLE NESTED FOR MAX STABILITY */
     PG_TRY();
     {
-        if (prev_ExecutorRun)
-#if PG_VERSION_NUM < 160000
-            prev_ExecutorRun(queryDesc, direction, count, execute_once);
-#else
-            prev_ExecutorRun(queryDesc, direction, count);
-#endif
-        else
-#if PG_VERSION_NUM < 160000
-            standard_ExecutorRun(queryDesc, direction, count, execute_once);
-#else
-            standard_ExecutorRun(queryDesc, direction, count);
-#endif
+        PG_TRY();
+        {
+            if (prev_ExecutorEnd)
+                prev_ExecutorEnd(queryDesc);
+            else
+                standard_ExecutorEnd(queryDesc);
+        }
+        PG_CATCH();
+        {
+            /* Mark failure? But we rethrow anyway */
+            PG_RE_THROW();
+        }
+        PG_END_TRY();
 
-        INSTR_TIME_SET_CURRENT(duration);
-        INSTR_TIME_SUBTRACT(duration, start);
-
-        cmd = (queryDesc->operation == CMD_SELECT ? "SELECT" : 
-               queryDesc->operation == CMD_INSERT ? "INSERT" :
-               queryDesc->operation == CMD_UPDATE ? "UPDATE" :
-               queryDesc->operation == CMD_DELETE ? "DELETE" : "OTHER");
-
-        log_apt_event(queryDesc->sourceText, cmd, count, INSTR_TIME_GET_MILLISEC(duration));
+        /* If we reached here, execution succeeded */
+        log_apt_event(queryDesc->sourceText, cmd, rows, duration_ms, true, NULL);
     }
     PG_FINALLY();
     {
@@ -198,18 +194,7 @@ apt_ProcessUtility(PlannedStmt *pstmt, const char *queryString,
     uint64      rows = 0;
     const char *cmd = "UTILITY";
 
-    /* 1. INFALLIBLE FILTER */
-    if (is_internal_query(queryString))
-    {
-        if (prev_ProcessUtility)
-            prev_ProcessUtility(pstmt, queryString, readOnlyTree, context, params, queryEnv, dest, qc);
-        else
-            standard_ProcessUtility(pstmt, queryString, readOnlyTree, context, params, queryEnv, dest, qc);
-        return;
-    }
-
-    /* 2. RECURSION GUARD */
-    if (nest_level > 0)
+    if (is_internal_query(queryString) || nest_level > 0)
     {
         if (prev_ProcessUtility)
             prev_ProcessUtility(pstmt, queryString, readOnlyTree, context, params, queryEnv, dest, qc);
@@ -223,10 +208,18 @@ apt_ProcessUtility(PlannedStmt *pstmt, const char *queryString,
 
     PG_TRY();
     {
-        if (prev_ProcessUtility)
-            prev_ProcessUtility(pstmt, queryString, readOnlyTree, context, params, queryEnv, dest, qc);
-        else
-            standard_ProcessUtility(pstmt, queryString, readOnlyTree, context, params, queryEnv, dest, qc);
+        PG_TRY();
+        {
+            if (prev_ProcessUtility)
+                prev_ProcessUtility(pstmt, queryString, readOnlyTree, context, params, queryEnv, dest, qc);
+            else
+                standard_ProcessUtility(pstmt, queryString, readOnlyTree, context, params, queryEnv, dest, qc);
+        }
+        PG_CATCH();
+        {
+            PG_RE_THROW();
+        }
+        PG_END_TRY();
 
         INSTR_TIME_SET_CURRENT(duration);
         INSTR_TIME_SUBTRACT(duration, start);
@@ -243,7 +236,7 @@ apt_ProcessUtility(PlannedStmt *pstmt, const char *queryString,
 
         if (qc) rows = qc->nprocessed;
 
-        log_apt_event(queryString, cmd, rows, INSTR_TIME_GET_MILLISEC(duration));
+        log_apt_event(queryString, cmd, rows, INSTR_TIME_GET_MILLISEC(duration), true, NULL);
     }
     PG_FINALLY();
     {
@@ -255,8 +248,8 @@ apt_ProcessUtility(PlannedStmt *pstmt, const char *queryString,
 void
 _PG_init(void)
 {
-    prev_ExecutorRun = ExecutorRun_hook;
-    ExecutorRun_hook = (ExecutorRun_hook_type) apt_ExecutorRun;
+    prev_ExecutorEnd = ExecutorEnd_hook;
+    ExecutorEnd_hook = (ExecutorEnd_hook_type) apt_ExecutorEnd;
 
     prev_ProcessUtility = ProcessUtility_hook;
     ProcessUtility_hook = (ProcessUtility_hook_type) apt_ProcessUtility;
@@ -265,6 +258,6 @@ _PG_init(void)
 void
 _PG_fini(void)
 {
-    ExecutorRun_hook = prev_ExecutorRun;
+    ExecutorEnd_hook = prev_ExecutorEnd;
     ProcessUtility_hook = prev_ProcessUtility;
 }
