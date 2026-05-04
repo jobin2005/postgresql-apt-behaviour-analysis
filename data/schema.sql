@@ -4,6 +4,7 @@
 -- ===============================
 CREATE TABLE IF NOT EXISTS apt_events (
     event_id SERIAL PRIMARY KEY,
+    session_id INT
     user_id TEXT NOT NULL,
 
     session_hint TEXT,  -- optional (can help grouping if available)
