@@ -28,13 +28,10 @@ def main():
     
     # 1. Start the Monitor Daemon
     print(f" Launching Monitor Daemon (polling DB for threats)...")
-    env = os.environ.copy()
-    env["PYTHONPATH"] = str(ROOT)
     monitor_proc = subprocess.Popen(
-        [sys.executable, "-m", "monitor.monitor", "--checkpoint", str(CHECKPOINT)],
+        [sys.executable, str(MONITOR_SCRIPT), "--checkpoint", str(CHECKPOINT)],
         stdout=sys.stdout,
         stderr=sys.stderr,
-        env=env
     )
 
     # 2. Start the Flask Dashboard
