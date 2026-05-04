@@ -23,6 +23,7 @@
 #include "utils/resowner.h"
 #include "access/xact.h"
 #include "catalog/pg_type.h"
+#include "utils/snapmgr.h"
 #include <string.h>
 
 PG_MODULE_MAGIC;
@@ -88,36 +89,65 @@ log_apt_event(const char *queryText, const char *cmd, uint64 rows,
     ip_addr = GetConfigOptionByName("client_addr", NULL, true);
     if (!ip_addr || strlen(ip_addr) == 0) ip_addr = "127.0.0.1";
 
+    volatile bool pushed_snapshot = false;
     BeginInternalSubTransaction(NULL);
     PG_TRY();
     {
+        if (!ActiveSnapshotSet()) {
+            PushActiveSnapshot(GetTransactionSnapshot());
+            pushed_snapshot = true;
+        }
+
         if ((ret = SPI_connect()) == SPI_OK_CONNECT)
         {
-            initStringInfo(&buf);
-            appendStringInfo(&buf, 
-                "INSERT INTO apt_events (user_id, session_hint, query_type, query_text, "
-                "duration_ms, rows_accessed, success_flag, error_code, ip_address) "
-                "VALUES ('%s', '%d', '%s', $1, %.3f, %llu, %s, %s, '%s');",
-                user_id, MyProcPid, cmd, duration_ms, (unsigned long long)rows,
-                success ? "TRUE" : "FALSE",
-                err_code ? psprintf("'%s'", err_code) : "NULL",
-                ip_addr
-            );
-
-            argtypes[0] = TEXTOID;
-            values[0] = CStringGetTextDatum(queryText);
+            const char *query = "INSERT INTO apt_events (user_id, session_hint, query_type, query_text, duration_ms, rows_accessed, success_flag, error_code, ip_address) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9);";
+            Oid argt[9];
+            Datum vals[9];
+            char nulls[9] = {' ', ' ', ' ', ' ', ' ', ' ', ' ', 'n', ' '}; 
             
-            SPI_execute_with_args(buf.data, 1, argtypes, values, NULL, false, 0);
+            char session_hint_str[32];
+            snprintf(session_hint_str, sizeof(session_hint_str), "%d", MyProcPid);
+            
+            argt[0] = TEXTOID; vals[0] = CStringGetTextDatum(user_id);
+            argt[1] = TEXTOID; vals[1] = CStringGetTextDatum(session_hint_str);
+            argt[2] = TEXTOID; vals[2] = CStringGetTextDatum(cmd);
+            argt[3] = TEXTOID; vals[3] = CStringGetTextDatum(queryText);
+            argt[4] = FLOAT8OID; vals[4] = Float8GetDatum(duration_ms);
+            argt[5] = INT4OID; vals[5] = Int32GetDatum((int32)rows);
+            argt[6] = BOOLOID; vals[6] = BoolGetDatum(success);
+            argt[7] = TEXTOID;
+            if (err_code) {
+                nulls[7] = ' ';
+                vals[7] = CStringGetTextDatum(err_code);
+            }
+            argt[8] = TEXTOID; vals[8] = CStringGetTextDatum(ip_addr);
+
+            ret = SPI_execute_with_args(query, 9, argt, vals, nulls, false, 0);
             
             SPI_finish();
-            pfree(buf.data);
         }
+
+        if (pushed_snapshot) {
+            PopActiveSnapshot();
+            pushed_snapshot = false;
+        }
+
         ReleaseCurrentSubTransaction();
     }
     PG_CATCH();
     {
+        ErrorData *edata;
         MemoryContextSwitchTo(oldcontext);
+        edata = CopyErrorData();
+        elog(WARNING, "APT_GUARD SPI ERROR: %s", edata->message);
+        FreeErrorData(edata);
         FlushErrorState();
+        
+        if (pushed_snapshot) {
+            PopActiveSnapshot();
+            pushed_snapshot = false;
+        }
+
         RollbackAndReleaseCurrentSubTransaction();
     }
     PG_END_TRY();
