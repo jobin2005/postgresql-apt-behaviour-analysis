@@ -9,7 +9,7 @@ import psycopg2
 import torch
 import math
 
-from monitor.feature_extractor import extract_state, state_dim
+from feature_extractor import extract_state, state_dim
 from agent.dqn_model import DQN
 from defense.actions import execute_action
 

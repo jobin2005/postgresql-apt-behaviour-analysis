@@ -53,32 +53,38 @@ Postgre/
 └── tests/                    # Unit tests
 ```
 
+## How to Run (Scratch Setup)
+
+### 1. Start the Containers
+This launches the Database and the ML Service (Dashboard + Monitor).
+```bash
+docker compose up -d
+```
+> [!NOTE]
+> The code is mounted as a volume (`.:/app`), so any changes you make to the Python files will reflect inside the container instantly without needing a rebuild!
+
+### 2. Generate Training Data
+Run this inside the container to create 5000 simulated sessions:
+```bash
+docker compose exec ml_service python data/generate_training_data.py --sessions 5000
+```
+
+### 3. Train the AI Agent
+Train the 7-dimension DQN (usually achieves ~99.9% accuracy):
+```bash
+docker compose exec ml_service python agent/train.py --episodes 2000
+```
+*Once training finishes, the **Monitor Daemon** will automatically detect the new model and start protecting the database.*
+
+### 4. Verify & Watch Logs
+You can see the system working in real-time:
+```bash
+docker compose logs -f ml_service
+```
+
 ---
 
-## How to Run the ML Pipeline
-
-**1. Generate Training Data**  
-Create 5000 fully simulated feature vectors (runs entirely offline):
-```bash
-python data/generate_training_data.py --sessions 5000 --apt-ratio 0.3
-```
-
-**2. Train the Model**  
-Train the Double-DQN (achieves 99.9% accuracy, best model saved to `checkpoints/dqn_best.pt`):
-```bash
-python agent/train.py --episodes 2000
-```
-*(Run `python agent/train.py --eval` to view metrics without retraining).*
-
-**3. Run Inference (Live Testing)**  
-Test the model locally and push the alert directly to the remote Supabase DB:
-```bash
-python agent/inference.py --session-id 1
-```
-
----
-
-## Agent Design (Phase 2 Update)
+## Agent Pipeline Details
 
 | Component | Detail |
 |-----------|--------|

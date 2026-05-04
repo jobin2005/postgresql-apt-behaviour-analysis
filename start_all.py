@@ -64,10 +64,10 @@ def main():
                     env=env
                 )
                 
-            # If monitor started and then died, report it
+            # If monitor started and then died, report it but DON'T kill the whole container
             if monitor_proc is not None and monitor_proc.poll() is not None:
-                print("Error: Monitor process died.")
-                break
+                print("Warning: Monitor process died. Dashboard is still running.")
+                monitor_proc = None # Reset so it could potentially restart if checkpoint changes
 
     except KeyboardInterrupt:
         print("\n Shutting down...")
