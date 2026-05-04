@@ -18,16 +18,22 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("apt.monitor")
 
 
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
 # ─────────────────────────────────────────────
 # DB CONNECTION
 # ─────────────────────────────────────────────
 def get_conn():
     return psycopg2.connect(
-        host="localhost",
-        port=5433,
-        database="postgres",
-        user="postgres",
-        password="postgres"
+        dbname=os.getenv("DB_NAME"),
+        user=os.getenv("DB_USER"),
+        password=os.getenv("DB_PASSWORD"),
+        host=os.getenv("DB_HOST"),
+        port=os.getenv("DB_PORT"),
+        sslmode=os.getenv("DB_SSL_MODE", "prefer")
     )
 
 

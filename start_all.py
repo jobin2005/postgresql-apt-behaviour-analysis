@@ -56,10 +56,12 @@ def main():
             # If monitor hasn't started but checkpoint now exists, start it
             if monitor_proc is None and CHECKPOINT.exists():
                 print(f"\n Detected checkpoint at {CHECKPOINT}! Launching Monitor Daemon...")
+                # Use same env with PYTHONPATH as dashboard
                 monitor_proc = subprocess.Popen(
                     [sys.executable, str(MONITOR_SCRIPT)],
                     stdout=sys.stdout,
                     stderr=sys.stderr,
+                    env=env
                 )
                 
             # If monitor started and then died, report it
