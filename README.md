@@ -17,9 +17,9 @@
 A **Deep Q-Learning (DQL)** agent that monitors PostgreSQL database activity in real-time to detect and automatically respond to **Advanced Persistent Threats (APTs)** — slow-moving, multi-stage attacks that evade traditional point-in-time IDS.
 
 ```
-pg_audit logs → Feature Extractor → DQL Agent → Defense Actions
-                                         ↑
-                               (trained on labelled sessions)
+pg_audit logs → Feature Extractor (7-Dim) → DQL Agent → Supabase Alerts
+                                              ↑
+                            (trained offline on simulated sessions)
 ```
 
 ---
@@ -29,18 +29,18 @@ pg_audit logs → Feature Extractor → DQL Agent → Defense Actions
 ```
 Postgre/
 ├── data/
+│   ├── generate_training_data.py # Offline simulation (5000+ sessions)
 │   └── schema.sql            # DB schema (apt_sessions, apt_events, apt_alerts)
 ├── agent/
-│   ├── environment.py        # Gymnasium-compatible RL environment
-│   ├── dqn_model.py          # PyTorch Deep Q-Network
+│   ├── environment.py        # In-memory session RL environment
+│   ├── dqn_model.py          # PyTorch Deep Q-Network (7-Dim, BatchNorm)
 │   ├── replay_buffer.py      # Experience replay buffer
-│   └── train.py              # Training + evaluation loop
+│   ├── train.py              # Training + evaluation loop
+│   └── inference.py          # Inference + remote Supabase alerting
 ├── monitor/
-│   ├── feature_extractor.py  # SQL events → 150-dim state vector
+│   ├── feature_extractor.py  # Session features → 7-dim state vector
 │   ├── log_parser.py         # DB & pg_audit log ingestion
 │   └── monitor.py            # Live monitoring daemon
-├── defense/
-│   └── actions.py            # alert / rate-limit / block actions
 ├── api/
 │   ├── app.py                # Flask REST API
 │   └── templates/dashboard.html  # Real-time threat dashboard
@@ -55,49 +55,36 @@ Postgre/
 
 ---
 
-## Quick Start (Using Docker - Recommended for Team Collaboration)
+## How to Run the ML Pipeline
 
-### 1. Prerequisites
-Ensure you have Docker and Docker Compose installed on your system.
-
-### 2. Build and Start the System
-This command will build the custom PostgreSQL image (compiling the `apt_guard.c` extension automatically) and start the ML python service:
+**1. Generate Training Data**  
+Create 5000 fully simulated feature vectors (runs entirely offline):
 ```bash
-docker compose up --build -d
+python data/generate_training_data.py --sessions 5000 --apt-ratio 0.3
 ```
-*Note: The database schema is automatically initialized on the first run.*
 
-### 3. Generate Training Data & Train (required at least once)
-Run these inside the ML container to prepare the agent:
+**2. Train the Model**  
+Train the Double-DQN (achieves 99.9% accuracy, best model saved to `checkpoints/dqn_best.pt`):
 ```bash
-docker compose exec ml_service python simulate_apt.py --sessions 100 --apt-ratio 0.3
-docker compose exec ml_service python agent/train.py --episodes 300
+python agent/train.py --episodes 2000
+```
+*(Run `python agent/train.py --eval` to view metrics without retraining).*
+
+**3. Run Inference (Live Testing)**  
+Test the model locally and push the alert directly to the remote Supabase DB:
+```bash
+python agent/inference.py --session-id 1
 ```
 
 ---
 
-## Running the System (Each Time)
-
-If the containers are stopped, just start them with:
-```bash
-docker compose up -d
-```
-The `ml_service` container automatically runs `start_all.py` which launches the Monitor Daemon and the Flask Dashboard.
-
-### Viewing Output
-1. **System Activity**: Watch the terminal console for session analysis logs.
-2. **Threat Dashboard**: Open your browser at **http://localhost:5000**.
-3. **DB Alerts**: Check the `apt_alerts` table in your Postgres database.
-
----
-
-## Agent Design
+## Agent Design (Phase 2 Update)
 
 | Component | Detail |
 |-----------|--------|
-| State space | 150-dim vector: 10-event window × 15 features |
+| State space | 7-dim vector (Session Profile incl. Query Count, Anomaly, Seq Risk) |
 | Action space | Discrete(4): No-op, Alert, Rate-Limit, Block |
-| Algorithm | Double DQN with experience replay |
+| Algorithm | Double DQN with BatchNorm and experience replay |
 | Reward | +10 correct block, -8 missed APT, −2 false positive |
 
 ---

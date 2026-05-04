@@ -1,136 +1,90 @@
 """
 test_feature_extractor.py
 --------------------------
-Unit tests for the feature extractor.
+Unit tests for the session-based feature extractor (7-dim).
 """
 import sys
 import os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from datetime import datetime, timezone, timedelta
 import numpy as np
 import pytest
-from monitor.feature_extractor import (
-    extract_state, state_dim, WINDOW_SIZE, FEATURES_PER_EVENT,
-    _query_entropy, _semantic_intent,
-)
+from monitor.feature_extractor import extract_state, state_dim
 
 
-def make_event(cmd="SELECT", schema="public", obj="products",
-               rows=10, delta_secs=30, duration_ms=50.0,
-               query_hash="abc123"):
-    return {
-        "command_type":  cmd,
-        "object_schema": schema,
-        "object_name":   obj,
-        "rows_affected": rows,
-        "event_time":    datetime.now(tz=timezone.utc),
-        "duration_ms":   duration_ms,
-        "query_hash":    query_hash,
+def _make_session(**overrides):
+    """Create a mock session dict for extract_state."""
+    defaults = {
+        "session_id": 1,
+        "user_id": "alice",
+        "query_count": 10,
+        "failed_query_count": 1,
+        "total_rows": 200,
+        "duration": 120,
+        "unique_tables": 3,
     }
+    defaults.update(overrides)
+    return defaults
 
 
-def test_state_dim():
-    assert state_dim() == WINDOW_SIZE * FEATURES_PER_EVENT
+class FakeConn:
+    """Minimal mock DB connection for extract_state."""
+    class FakeCursor:
+        def __init__(self):
+            self._result = None
+        def execute(self, *a, **kw):
+            pass
+        def fetchone(self):
+            return (10, 1000, 60)  # default profile
+        def fetchall(self):
+            return []  # no sequence data
+        def __enter__(self):
+            return self
+        def __exit__(self, *a):
+            pass
+
+    def cursor(self):
+        return self.FakeCursor()
 
 
-def test_extract_single_event():
-    ev = make_event("SELECT", "public", "products", 10)
-    state = extract_state([ev])
-    assert state.shape == (state_dim(),)
+def test_state_dim_is_7():
+    assert state_dim() == 7
+
+
+def test_extract_state_shape():
+    conn = FakeConn()
+    session = _make_session()
+    state = extract_state(conn, session)
+    assert state.shape == (7,)
     assert state.dtype == np.float32
 
 
-def test_extract_full_window():
-    events = [make_event() for _ in range(WINDOW_SIZE)]
-    state = extract_state(events)
-    assert state.shape == (state_dim(),)
+def test_extract_state_values():
+    conn = FakeConn()
+    session = _make_session(query_count=20, failed_query_count=5,
+                            total_rows=500, duration=300, unique_tables=8)
+    state = extract_state(conn, session)
+    assert state[0] == 20      # query_count
+    assert state[1] == 5       # failed_query_count
+    assert state[2] == 500     # total_rows
+    assert state[3] == 300     # duration
+    assert state[4] == 8       # unique_tables
+    assert 0.0 <= state[5] <= 1.0  # anomaly (capped at 1.0)
+    assert state[6] >= 0.0         # seq_risk
 
 
-def test_zero_pad_short_window():
-    state_1  = extract_state([make_event()])
-    state_10 = extract_state([make_event()] * 10)
-    # Short windows are right-aligned; leading slots should be zero
-    assert state_1.shape == state_10.shape
+def test_anomaly_increases_with_deviation():
+    conn = FakeConn()
+    normal = _make_session(query_count=10, total_rows=1000, duration=60)
+    extreme = _make_session(query_count=200, total_rows=50000, duration=5000)
+    state_n = extract_state(conn, normal)
+    state_e = extract_state(conn, extreme)
+    assert state_e[5] > state_n[5]  # anomaly should be higher
 
 
-def test_apt_schema_higher_sensitivity():
-    ev_pub = make_event("SELECT", "public", "products", 10)
-    ev_pg  = make_event("SELECT", "pg_catalog", "pg_roles", 10)
-    state_pub = extract_state([ev_pub])
-    state_pg  = extract_state([ev_pg])
-    # pg_catalog sensitivity (index N_CMD_TYPES) should be higher for pg_catalog
-    feature_idx = 9   # N_CMD_TYPES = 9; schema sensitivity is at position 9
-    assert state_pg[feature_idx * 0 + 9] != state_pub[feature_idx * 0 + 9] or True  # just ensure no crash
-
-
-def test_rows_normalised():
-    ev_low  = make_event(rows=0)
-    ev_high = make_event(rows=100_000)
-    state_low  = extract_state([ev_low])
-    state_high = extract_state([ev_high])
-    # rows feature = N_CMD_TYPES + 1 = 10 (in last slot)
-    rows_slot = WINDOW_SIZE - 1
-    rows_idx  = rows_slot * FEATURES_PER_EVENT + 10
-    assert state_high[rows_idx] >= state_low[rows_idx]
-
-
-def test_overflow_window_truncated():
-    events = [make_event() for _ in range(WINDOW_SIZE + 5)]
-    state = extract_state(events)
-    assert state.shape == (state_dim(),)
-
-
-def test_unknown_command_maps_to_other():
-    ev = make_event("VACUUM")
-    state = extract_state([ev])
+def test_no_nan_values():
+    conn = FakeConn()
+    session = _make_session()
+    state = extract_state(conn, session)
     assert not np.isnan(state).any()
-
-
-# ── Phase 1: New Feature Tests ───────────────────────────────────────────────
-
-def test_query_entropy_low():
-    """Repeated characters should produce low entropy."""
-    assert _query_entropy("aaaa") < 0.1
-
-
-def test_query_entropy_high():
-    """Diverse characters should produce high entropy."""
-    assert _query_entropy("a1b2c3d4e5f6g7h8") > 0.5
-
-
-def test_query_entropy_empty():
-    """Empty string should return 0."""
-    assert _query_entropy("") == 0.0
-
-
-def test_semantic_intent_sensitive():
-    """Queries targeting pg_shadow should have high threat intent."""
-    score = _semantic_intent("SELECT", "pg_catalog", "pg_shadow")
-    assert score >= 0.9
-
-
-def test_semantic_intent_benign():
-    """Queries on normal tables should have low intent."""
-    score = _semantic_intent("SELECT", "public", "products")
-    assert score <= 0.2
-
-
-def test_semantic_intent_amplified_for_admin():
-    """ALTER ROLE on sensitive objects should amplify the score."""
-    base  = _semantic_intent("SELECT", "pg_catalog", "pg_roles")
-    amped = _semantic_intent("ALTER ROLE", "pg_catalog", "pg_roles")
-    assert amped >= base
-
-
-def test_duration_normalised_in_state():
-    """Duration feature should appear in the state vector."""
-    ev_fast = make_event(duration_ms=1.0)
-    ev_slow = make_event(duration_ms=5000.0)
-    state_fast = extract_state([ev_fast])
-    state_slow = extract_state([ev_slow])
-    # Duration is at N_CMD_TYPES + 3 = 12 (in last slot)
-    dur_idx = (WINDOW_SIZE - 1) * FEATURES_PER_EVENT + 12
-    assert state_slow[dur_idx] > state_fast[dur_idx]
-
