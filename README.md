@@ -4,7 +4,7 @@ This repository contains the source code for **APT Guard**, a high-performance P
 
 ---
 
-##Extension Setup & Deployment Guide
+## Extension Setup & Deployment Guide
 
 Follow these steps to get the system running from scratch.
 
