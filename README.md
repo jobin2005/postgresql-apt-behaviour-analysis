@@ -67,29 +67,38 @@ university=# CREATE EXTENSION IF NOT EXISTS apt_guard;
 
 ---
 
-## 🔍 Detailed Verification Lab (Tracing the Data)
+## 🔍 Detailed Verification Lab (A to Z)
 
-To verify that everything is working, you can simulate a few queries and check the logs.
+To verify the system end-to-end, follow this data tracing lab:
 
-#### Step A: Insert Sample Benign Activity
-Run a few normal queries to see them being logged:
-```sql
-university=# CREATE TABLE IF NOT EXISTS sample_data (id INT, val TEXT);
-university=# INSERT INTO sample_data VALUES (1, 'A'), (2, 'B');
-university=# SELECT * FROM sample_data;
+### 1. Generate Malicious Activity
+Use the built-in attack scripts to simulate noisy threats:
+```bash
+# Inside Docker (Recommended)
+docker exec -it postgre-ml_service-1 python checkpoints/ultra_attack.py
+
+# Native
+# Ensure you have psycopg2 installed: pip install psycopg2-binary
+python checkpoints/ultra_attack.py
 ```
 
-#### Step B: Check Raw Event Logs
-Verify that the C-extension is capturing your queries:
-```sql
-university=# SELECT query_text, event_time FROM apt_events ORDER BY event_time DESC LIMIT 5;
-```
+### 2. Trace the Data Flow (SQL Queries)
 
-#### Step C: Check AI Alerts
-If you run an aggressive script (like a massive data dump or a series of failures), the AI will generate an alert:
-```sql
-university=# SELECT * FROM apt_alerts;
-```
+| Pipeline Step | Table to Check | SQL Query | Purpose |
+| :--- | :--- | :--- | :--- |
+| **1. Raw Hooking** | `apt_events` | `SELECT * FROM apt_events ORDER BY event_time DESC LIMIT 10;` | Confirm C-extension is capturing SQL. |
+| **2. Sessionizing** | `apt_sessions` | `SELECT session_id, query_count, failed_query_count, anomaly_score FROM apt_sessions;` | See how events are bundled by `session_builder.py`. |
+| **3. Profiling** | `apt_user_profile` | `SELECT * FROM apt_user_profile;` | Check how `userprofile_builder.py` learns baselines. |
+| **4. Sequences** | `apt_sequence_patterns` | `SELECT * FROM apt_sequence_patterns;` | View risky sequences found by `sequence_builder.py`. |
+| **5. AI Alerts** | `apt_alerts` | `SELECT * FROM apt_alerts ORDER BY created_at DESC;` | View the final AI critical threat alerts. |
+
+---
+
+## 🛠️ Internal Components
+
+*   **`monitor/monitor.py`**: The multi-processor orchestrator.
+*   **`agent/inference.py`**: The 7-dimensional DQN "Brain" (Inference pipeline).
+*   **`api/app.py`**: The Flask Dashboard backend.
 
 ---
 
