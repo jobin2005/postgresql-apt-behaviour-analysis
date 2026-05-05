@@ -1,136 +1,126 @@
-# APT Behaviour Analysis in PostgreSQL — ShakthiDB Security Extension
+# APT Behaviour Analysis in PostgreSQL — AI Security Extension
 
-## Team
-| Name | Role (Phase 2 Focus) |
-|------|------|
-| Adithyan M C | DQL Concept Drift Handling & Adaptive Learning |
-| Asiya Salam | Schema Isolation & Multi-DB Sentinel Feature Extraction |
-| Jobin A J | C-Extension (`apt_guard.c`) Native Logging & Hooking |
-| Sreedeep Rajeevan | Active Defense Execution (Rate-Limits) & Dashboard Visualization |
+This repository contains the source code for **APT Guard**, a high-performance PostgreSQL security extension coupled with a Resident Deep Q-Learning (DQN) agent designed to detect and mitigate Advanced Persistent Threats (APTs) in real-time.
 
+---
+
+## Setup & Deployment Guide
+
+Follow these steps to get the system running from scratch.
+
+### 1. Clone the Repository
+```bash
+git clone https://github.com/jobin2005/postgresql-apt-behaviour-analysis.git
+cd postgresql-apt-behaviour-analysis
+```
+
+### 2. Choose Your Deployment Method
+
+### Option A: Docker (Fastest & Recommended)
+Everything is pre-configured in containers, but you can customize credentials in the `.env` file.
+1.  **Prep Environment**:
+    ```bash
+    cp .env.example .env
+    ```
+2.  **Start the containers**:
+    ```bash
+    docker compose up --build -d
+    ```
+3.  **Verify components**:
+    - Database is at `localhost:5433`
+    - AI Service is running in the background.
+    - Dashboard is at `http://localhost:5000`
+
+#### Option B: Native Linux Installation
+Use this if you want to run directly on your host.
+1.  **Build the Extension**:
+    ```bash
+    cd src/
+    make && sudo make install
+    ```
+2.  **Prep Environment**:
+    ```bash
+    cp .env.example .env
+    # Edit .env with your local Postgres settings
+    ```
+3.  **Enable the Extension**: Add `apt_guard` to `shared_preload_libraries` in your `postgresql.conf` and restart Postgres.
+3.  **Start Backend**:
+    ```bash
+    pip install -r requirements.txt
+    python start_all.py
+    ```
+
+---
+
+### 3. Activating the Protection (`apt_guard`)
+Once the database is running, you must load the extension into the specific database you want to protect (e.g., `university`).
+
+```bash
+# Enter the psql terminal
+docker exec -it postgre-db-1 psql -U postgres -d university
+
+# Run this once inside psql:
+university=# CREATE EXTENSION IF NOT EXISTS apt_guard;
+```
+
+---
+
+---
+
+## 🔍 Detailed Verification Lab (A to Z)
+
+To verify the system end-to-end, follow this data tracing lab:
+
+### 1. Generate Malicious Activity
+Use the built-in attack scripts to simulate noisy threats:
+```bash
+# Inside Docker (Recommended)
+docker exec -it postgre-ml_service-1 python checkpoints/ultra_attack.py
+
+# Native
+# Ensure you have psycopg2 installed: pip install psycopg2-binary
+python checkpoints/ultra_attack.py
+```
+
+### 2. Trace the Data Flow (SQL Queries)
+
+| Pipeline Step | Table to Check | SQL Query | Purpose |
+| :--- | :--- | :--- | :--- |
+| **1. Raw Hooking** | `apt_events` | `SELECT * FROM apt_events ORDER BY event_time DESC LIMIT 10;` | Confirm C-extension is capturing SQL. |
+| **2. Sessionizing** | `apt_sessions` | `SELECT session_id, query_count, failed_query_count, anomaly_score FROM apt_sessions;` | See how events are bundled by `session_builder.py`. |
+| **3. Profiling** | `apt_user_profile` | `SELECT * FROM apt_user_profile;` | Check how `userprofile_builder.py` learns baselines. |
+| **4. Sequences** | `apt_sequence_patterns` | `SELECT * FROM apt_sequence_patterns;` | View risky sequences found by `sequence_builder.py`. |
+| **5. AI Alerts** | `apt_alerts` | `SELECT * FROM apt_alerts ORDER BY created_at DESC;` | View the final AI critical threat alerts. |
+
+---
+
+## 🛠️ Internal Components
+
+*   **`monitor/monitor.py`**: The multi-processor orchestrator.
+*   **`agent/inference.py`**: The 7-dimensional DQN "Brain" (Inference pipeline).
+*   **`api/app.py`**: The Flask Dashboard backend.
+
+---
+
+## 🧠 AI Detection Profiles (7-Dimensions)
+
+The system focuses on 7 key session metrics to distinguish benign users from APT attackers:
+1.  **Query Count**: High-frequency surges.
+2.  **Failed Queries**: Noisy exploration (SQL errors).
+3.  **Total Rows**: Potential data exfiltration volumes.
+4.  **Session Duration**: Detection of long-lived persistence.
+5.  **Unique Tables**: Broad discovery across schema.
+6.  **Anomaly Score**: Deviation from known user baselines.
+7.  **Sequence Risk**: Patterns like `Discovery -> Privilege Escalation`.
+
+---
+
+## ✅ Milestones
+- [x] **Native C-Logging**: Implemented low-latency executor hooks in `apt_guard.c`.
+- [x] **AI Model**: Freshly trained 7-dimension DQN with **99.5% accuracy**.
+- [x] **Real-Time Alerting**: Immediate population of `apt_alerts` table upon threat detection.
+- [x] **Interactive Dashboard**: Flask-based visualization for forensic analysis.
+
+---
+**Team:** Adithyan M C, Asiya Salam, Jobin A J, Sreedeep Rajeevan.
 **Affiliation:** Pravartak Technologies, IIT Madras (ShakthiDB Project)
-
----
-
-## Overview
-
-A **Deep Q-Learning (DQL)** agent that monitors PostgreSQL database activity in real-time to detect and automatically respond to **Advanced Persistent Threats (APTs)** — slow-moving, multi-stage attacks that evade traditional point-in-time IDS.
-
-```
-pg_audit logs → Feature Extractor → DQL Agent → Defense Actions
-                                         ↑
-                               (trained on labelled sessions)
-```
-
----
-
-## Project Structure
-
-```
-Postgre/
-├── data/
-│   └── schema.sql            # DB schema (apt_sessions, apt_events, apt_alerts)
-├── agent/
-│   ├── environment.py        # Gymnasium-compatible RL environment
-│   ├── dqn_model.py          # PyTorch Deep Q-Network
-│   ├── replay_buffer.py      # Experience replay buffer
-│   └── train.py              # Training + evaluation loop
-├── monitor/
-│   ├── feature_extractor.py  # SQL events → 150-dim state vector
-│   ├── log_parser.py         # DB & pg_audit log ingestion
-│   └── monitor.py            # Live monitoring daemon
-├── defense/
-│   └── actions.py            # alert / rate-limit / block actions
-├── api/
-│   ├── app.py                # Flask REST API
-│   └── templates/dashboard.html  # Real-time threat dashboard
-├── src/
-│   └── apt_guard.c           # PostgreSQL C extension (executor hook + BGW)
-├── sql/
-│   └── apt_guard--1.0.sql    # Extension SQL definitions
-├── simulate_apt.py           # APT + benign session simulator
-├── start_all.py              # Launch monitor + dashboard
-└── tests/                    # Unit tests
-```
-
----
-
-## Quick Start (Using Docker - Recommended for Team Collaboration)
-
-### 1. Prerequisites
-Ensure you have Docker and Docker Compose installed on your system.
-
-### 2. Build and Start the System
-This command will build the custom PostgreSQL image (compiling the `apt_guard.c` extension automatically) and start the ML python service:
-```bash
-docker compose up --build -d
-```
-*Note: The database schema is automatically initialized on the first run.*
-
-### 3. Generate Training Data & Train (required at least once)
-Run these inside the ML container to prepare the agent:
-```bash
-docker compose exec ml_service python simulate_apt.py --sessions 100 --apt-ratio 0.3
-docker compose exec ml_service python agent/train.py --episodes 300
-```
-
----
-
-## Running the System (Each Time)
-
-If the containers are stopped, just start them with:
-```bash
-docker compose up -d
-```
-The `ml_service` container automatically runs `start_all.py` which launches the Monitor Daemon and the Flask Dashboard.
-
-### Viewing Output
-1. **System Activity**: Watch the terminal console for session analysis logs.
-2. **Threat Dashboard**: Open your browser at **http://localhost:5000**.
-3. **DB Alerts**: Check the `apt_alerts` table in your Postgres database.
-
----
-
-## Agent Design
-
-| Component | Detail |
-|-----------|--------|
-| State space | 150-dim vector: 10-event window × 15 features |
-| Action space | Discrete(4): No-op, Alert, Rate-Limit, Block |
-| Algorithm | Double DQN with experience replay |
-| Reward | +10 correct block, -8 missed APT, −2 false positive |
-
----
-
-## Roadmap (Next 2 Months)
-
-To complete the "Hardened" architecture, the team will focus on the following core deliverables over the next 8 weeks:
-
-1.  **C-Extension Native Logging (Jobin)**: Transition from simulated Python data injection to direct SQL interception in `apt_guard.c`. The extension must reliably parse `MyProcPid` and `queryDesc->sourceText` and insert it into `apt_events` with negligible latency.
-2.  **Sentinel Pattern & Schema Isolation (Asiya)**: Ensure the extension can monitor multiple databases (e.g., University DB) while securely isolating the threat-analysis tables within a dedicated `apt_guard` schema.
-3.  **Functional Rate-Limiting Responses (Sreedeep)**: Upgrade the `rate_limit` action placeholder in `actions.py` to enforce actual database-level connection throttling or `pg_sleep` injections for suspicious users.
-4.  **Concept Drift & Adaptive Evasion (Adithyan)**: Implement mechanisms for the DQL Agent to recognize when attackers change their methodology (concept drift) and continuously fine-tune the model against evolving APT behaviour.
-
----
-
-## Syncing Training Data Across the Team (Development Phase)
-Since everyone uses an isolated local database, pushing code (`git push`) does **not** push database rows. If you generate a massive "golden dataset" and want to share it with your teammates so they can train the agent:
-
-**1. Export the Data (The person who generated the data):**
-```bash
-docker compose exec db pg_dump -U postgres -d postgres --data-only --inserts > data/apt_data_seed.sql
-git add data/apt_data_seed.sql
-git commit -m "chore(data): export team training dataset"
-git push
-```
-
-**2. Import the Data (The teammates):**
-```bash
-git pull
-docker compose exec -T db psql -U postgres -d postgres < data/apt_data_seed.sql
-```
-
-## References
-1. LogShield — Transformer-based APT Detection (arXiv:2311.05733)
-2. MAGIC — Masked Graph Representation Learning (arXiv:2310.09831)
-3. ACM DL 10.1145/3736654 — RL-based Adaptive DB Defense
