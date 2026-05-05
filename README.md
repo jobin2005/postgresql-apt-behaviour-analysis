@@ -1,108 +1,106 @@
 # APT Behaviour Analysis in PostgreSQL — AI Security Extension
 
-## Overview
-
-This project implements a **Real-Time AI Threat Defense** system for PostgreSQL. It uses a **Deep Q-Learning (DQN)** agent to monitor database sessions and automatically block or alert on **Advanced Persistent Threats (APTs)**. 
-
-The system utilizes a native C-extension for low-latency SQL hooking and a Python analytical daemon for 7-dimensional behavioral scoring.
+This repository contains the source code for **APT Guard**, a high-performance PostgreSQL security extension coupled with a Resident Deep Q-Learning (DQN) agent designed to detect and mitigate Advanced Persistent Threats (APTs) in real-time.
 
 ---
 
-## 🏗️ System Architecture
+## 🚀 A-Z Setup & Deployment Guide
 
-The project is built on the **Sentinel Pattern**:
-*   **The Guard** (`apt_guard.c`): A PostgreSQL C-extension that hooks into the query executor to log every event in real-time.
-*   **The Brain** (`monitor.py`): A Python daemon that aggregates events into sessions and uses a **7-dimension DQN model** to predict threats.
-*   **The Watcher** (`api/app.py`): A Flask-based dashboard that visualizes active alerts and session forensics.
+Follow these steps to get the system running from scratch.
 
----
-
-## 🚀 Quick Start (Using Docker - Recommended)
-
-Docker is the fastest way to deploy the entire stack (Postgres + AI Service + Dashboard).
-
-### 1. Build and Start
+### 1. Clone the Repository
 ```bash
-docker compose up --build -d
+git clone https://github.com/jobin2005/postgresql-apt-behaviour-analysis.git
+cd postgresql-apt-behaviour-analysis
 ```
-*This automatically compiles the C-extension and initializes the database schema.*
 
-### 2. Activate the Extension
-Connect to your database (e.g., `university`) and load the protection:
+### 2. Choose Your Deployment Method
+
+#### Option A: Docker (Fastest & Recommended)
+Everything is pre-configured in containers.
+1.  **Start the containers**:
+    ```bash
+    docker compose up --build -d
+    ```
+2.  **Verify components**:
+    - Database is at `localhost:5433`
+    - AI Service is running in the background.
+    - Dashboard is at `http://localhost:5000`
+
+#### Option B: Native Linux Installation
+Use this if you want to run directly on your host.
+1.  **Build the Extension**:
+    ```bash
+    cd src/
+    make && sudo make install
+    ```
+2.  **Enable the Extension**: Add `apt_guard` to `shared_preload_libraries` in your `postgresql.conf` and restart Postgres.
+3.  **Start Backend**:
+    ```bash
+    pip install -r requirements.txt
+    python start_all.py
+    ```
+
+---
+
+### 3. Activating the Protection (`apt_guard`)
+Once the database is running, you must load the extension into the specific database you want to protect (e.g., `university`).
+
 ```bash
+# Enter the psql terminal
 docker exec -it postgre-db-1 psql -U postgres -d university
-university=# CREATE EXTENSION apt_guard;
-```
 
-### 3. View the Dashboard
-Open your browser at **http://localhost:5000** to see live threat analysis.
-
----
-
-## 🛠️ Manual Installation (Without Docker)
-
-Use this if you have a local PostgreSQL 15+ installation on Linux.
-
-### 1. Compile the Extension
-```bash
-cd src/
-make && sudo make install
-```
-
-### 2. Configure PostgreSQL
-Add the extension to your `postgresql.conf`:
-```conf
-shared_preload_libraries = 'apt_guard'
-```
-*Restart PostgreSQL after saving.*
-
-### 3. Initialize Schema & Daemon
-```bash
-# 1. Run the schema script
-psql -U postgres -d your_db -f data/schema.sql
-
-# 2. Install Python dependencies
-pip install -r requirements.txt
-
-# 3. Start the analytical daemon
-python start_all.py
+# Run this once inside psql:
+university=# CREATE EXTENSION IF NOT EXISTS apt_guard;
 ```
 
 ---
 
-## 🧠 AI Detection Profiles (7-Dimensions)
+### 4. Verification Walkthrough (Sample Data)
 
-The system focuses on 7 key metrics to distinguish benign users from APT attackers:
-1.  **Query Count**: High-frequency surges.
-2.  **Failed Queries**: Noisy exploration behavior.
-3.  **Total Rows**: Data exfiltration surges.
-4.  **Session Duration**: Long-lived persistence.
-5.  **Unique Tables**: Broad discovery across schema.
-6.  **Anomaly Score**: Deviation from user-specific baseline.
-7.  **Sequence Risk**: Detection of dangerous query patterns (e.g., discovery -> privilege escalation).
+To verify that everything is working, you can simulate a few queries and check the logs.
 
----
-
-## ✅ Milestones Completed
-- [x] **Production C-Extension**: Stable query hooking with transaction safety.
-- [x] **7-Dim AI Architecture**: Refined state vector with 99.5% detection accuracy.
-- [x] **Automated Alerting**: Real-time insertion into `apt_alerts` with full Q-value reasoning.
-- [x] **Attribution Features**: Added client IP and process name tracking to sessions.
-- [x] **Dashboard Sync**: Frontend visualization connected to 7-dim AI results.
-
----
-
-## 📡 Viewing Results
-Check the database for detected threats:
+#### Step A: Insert Sample Benign Activity
+Run a few normal queries to see them being logged:
 ```sql
-SELECT session_id, threat_level, action_taken, created_at 
-FROM apt_alerts 
-ORDER BY created_at DESC;
+university=# CREATE TABLE IF NOT EXISTS sample_data (id INT, val TEXT);
+university=# INSERT INTO sample_data VALUES (1, 'A'), (2, 'B');
+university=# SELECT * FROM sample_data;
+```
+
+#### Step B: Check Raw Event Logs
+Verify that the C-extension is capturing your queries:
+```sql
+university=# SELECT query_text, event_time FROM apt_events ORDER BY event_time DESC LIMIT 5;
+```
+
+#### Step C: Check AI Alerts
+If you run an aggressive script (like a massive data dump or a series of failures), the AI will generate an alert:
+```sql
+university=# SELECT * FROM apt_alerts;
 ```
 
 ---
+
+## 🏗️ Technical Architecture: 7-Dimension AI
+
+The system focuses on 7 key session metrics to distinguish benign users from APT attackers:
+1.  **Query Count**: High-frequency surges.
+2.  **Failed Queries**: Noisy exploration (SQL errors).
+3.  **Total Rows**: Potential data exfiltration volumes.
+4.  **Session Duration**: Detection of long-lived persistence.
+5.  **Unique Tables**: Broad discovery across schema.
+6.  **Anomaly Score**: Deviation from known user baselines.
+7.  **Sequence Risk**: Patterns like `Discovery -> Privilege Escalation`.
+
+---
+
+## ✅ Milestones
+- [x] **Native C-Logging**: Implemented low-latency executor hooks in `apt_guard.c`.
+- [x] **AI Model**: Freshly trained 7-dimension DQN with **99.5% accuracy**.
+- [x] **Real-Time Alerting**: Immediate population of `apt_alerts` table upon threat detection.
+- [x] **Interactive Dashboard**: Flask-based visualization for forensic analysis.
+
+---
+**Team:** Adithyan M C, Asiya Salam, Jobin A J, Sreedeep Rajeevan.
 **Affiliation:** Pravartak Technologies, IIT Madras (ShakthiDB Project)
-rences
-1. LogShield — Transformer-based APT Detection (arXiv:2311.05733)
-2. MAGIC — Masked Graph Representation Learning (arXiv:2310.09831)
-3. ACM DL 10.1145/3736654 — RL-based Adaptive DB Defense
