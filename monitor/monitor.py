@@ -81,7 +81,6 @@ def load_agent(path):
 # MAIN LOOP
 # ─────────────────────────────────────────────
 def run_monitor():
-    conn = get_conn()
     try:
         agent = load_agent("checkpoints/dqn_best.pt")
         logger.info("AI Agent loaded successfully.")
@@ -90,6 +89,13 @@ def run_monitor():
         logger.warning("AI Agent failed to load (Dimension mismatch). Monitoring will continue in 'Builders-Only' mode: %s", exc)
 
     while True:
+        try:
+            conn = get_conn()
+        except Exception as e:
+            logger.error("Database connection failed: %s", e)
+            time.sleep(5)
+            continue
+
         # STEP 1: Process raw events into analytical models
         try:
             build_sessions()
@@ -99,7 +105,13 @@ def run_monitor():
             logger.error("Error in analytical builders: %s", exc)
 
         # STEP 2: Inference on active sessions
-        sessions = fetch_sessions(conn)
+        try:
+            sessions = fetch_sessions(conn)
+        except Exception as e:
+            logger.error("Error fetching sessions: %s", e)
+            conn.close()
+            time.sleep(5)
+            continue
 
         for s in sessions:
             state = extract_state(conn, s)
@@ -118,6 +130,7 @@ def run_monitor():
             else:
                 logger.info("session=%d (Builders-Only Mode: Analysis processed but skipping AI action)", s["session_id"])
 
+        conn.close()
         time.sleep(5)
 
 

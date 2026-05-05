@@ -199,7 +199,17 @@ apt_ExecutorEnd(QueryDesc *queryDesc)
         }
         PG_CATCH();
         {
-            /* Mark failure? But we rethrow anyway */
+            /* . How our work is integrated with PostgreSQL: Our system acts as a native Sentinel by functioning as a PostgreSQL C-extension (apt_guard). It integrates deeply into the database engine by hooking directly into the 
+￼
+ExecutorEnd
+ and 
+￼
+ProcessUtility
+ phases, allowing us to capture zero-latency forensic metadata (like client IP, threat scores, and SQL text) for every query using internal subtransactions.
+
+2. Completion %: 80% (Phase 1 core logging pipeline and ML extraction are fully functional; currently on Phase 2 retraining the AI models).
+
+3. Expected Date of Final Delivery (appx): Late May / Early June 2026Mark failure? But we rethrow anyway */
             PG_RE_THROW();
         }
         PG_END_TRY();
@@ -254,6 +264,7 @@ apt_ProcessUtility(PlannedStmt *pstmt, const char *queryString,
         INSTR_TIME_SET_CURRENT(duration);
         INSTR_TIME_SUBTRACT(duration, start);
 
+        bool skip_logging = false;
         if (pstmt->utilityStmt)
         {
             NodeTag tag = nodeTag(pstmt->utilityStmt);
@@ -262,11 +273,14 @@ apt_ProcessUtility(PlannedStmt *pstmt, const char *queryString,
             else if (tag == T_CreateStmt) cmd = "CREATE";
             else if (tag == T_DropStmt) cmd = "DROP";
             else if (tag == T_GrantStmt) cmd = "GRANT";
+            else if (tag == T_TransactionStmt) skip_logging = true;
         }
 
         if (qc) rows = qc->nprocessed;
 
-        log_apt_event(queryString, cmd, rows, INSTR_TIME_GET_MILLISEC(duration), true, NULL);
+        if (!skip_logging) {
+            log_apt_event(queryString, cmd, rows, INSTR_TIME_GET_MILLISEC(duration), true, NULL);
+        }
     }
     PG_FINALLY();
     {

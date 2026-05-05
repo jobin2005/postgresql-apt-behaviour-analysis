@@ -1,0 +1,110 @@
+================================================================================
+ APT GUARD SECURE SYSTEM: INTEGRATION GUIDE
+================================================================================
+
+OVERVIEW
+--------
+The APT Guard system operates in two decoupled phases. This ensures zero latency 
+for the actual database users while providing advanced threat detection in the 
+background.
+
+- PHASE 1 (Native Sentinel): A native PostgreSQL C-extension that hooks into 
+  internal execution phases to intercept query metadata at zero latency and 
+  logs it to an `apt_events` table.
+- PHASE 2 (Analytical AI Engine): A decoupled Python daemon that actively 
+  monitors the `apt_events` table, clusters behaviors into sessions, and 
+  deploys a DQN AI agent to score threat anomalies in real-time.
+
+
+
+
+================================================================================
+ PHASE 1: INTEGRATING THE NATIVE SENTINEL (DATABASE SERVER)
+================================================================================
+
+Before integrating the extension into ShaktiDB (or any PostgreSQL instance), 
+ensure the database server has the build toolchain (`make`, `gcc`) and the 
+PostgreSQL server development headers installed.
+
+STEP 1: TRANSFER SOURCE FILES
+Transfer the following files to a build directory on the database server:
+  - `src/Makefile`
+  - `src/apt_guard.c`
+  - `src/apt_guard--1.0.sql`
+  - `src/apt_guard.control`
+
+STEP 2: BUILD AND INSTALL
+Navigate to the directory containing the files and compile the extension:
+  
+  $ make
+  $ sudo make install
+
+STEP 3: PRELOAD THE LIBRARY
+Edit your `postgresql.conf` file so the hooks can attach to memory at boot:
+
+  shared_preload_libraries = 'apt_guard'
+
+STEP 4: RESTART THE DATABASE
+Restart the database service to apply the configuration.
+  
+  $ sudo systemctl restart postgresql
+
+STEP 5: ACTIVATE THE EXTENSION
+Connect to the database you want to secure and load the extension:
+
+  $ psql -U postgres -d your_target_db
+  your_target_db=# CREATE EXTENSION apt_guard;
+
+*The database will now automatically log all raw traffic into `apt_events`.*
+
+
+================================================================================
+ PHASE 2: RUNNING THE AI AGENT (ANALYSIS SERVER / DAEMON)
+================================================================================
+
+To actually process the logs and run the active defense AI, you must start the 
+Python-based Analytical Engine. This can be run on the same server, or on a 
+separate Analysis Server to save CPU.
+
+STEP 1: TRANSFER THE ENGINE FILES
+Copy the Python environment folders to the host (`monitor/`, `agent/`, `defense/`, 
+`api/`), along with `start_all.py` and `requirements.txt`.
+
+STEP 2: INSTALL DEPENDENCIES
+It is recommended to run this within a virtual environment. Install the packages:
+
+  $ pip install -r requirements.txt
+
+STEP 3: CONFIGURE ENVIRONMENT VARIABLES
+If the database isn't local, ensure the Python scripts know how to connect to 
+ShaktiDB. You can export these variables into your environment or a `.env` file:
+
+  export DB_HOST="your_shaktidb_ip"
+  export DB_NAME="your_target_db"
+  export DB_USER="postgres"
+  export DB_PASSWORD="your_password"
+
+STEP 4: START THE AI DAEMON
+Run the overarching controller script that will start the extraction threads, 
+session grouping, and the DQN model:
+
+  $ python start_all.py
+
+*The AI agent will now continuously poll the `apt_events` table asynchronously, 
+scoring user behavior and logging threats without interfering with database speed.*
+
+
+
+================================================================================
+ ALTERNATIVE: DOCKER DEPLOYMENT (RECOMMENDED)
+================================================================================
+
+If ShaktiDB or your deployment environment supports Docker, you can skip ALL of 
+the manual Phase 1 and Phase 2 steps below. Simply clone the repository and run:
+
+  $ docker compose up --build -d
+
+This single command automatically compiles the C-extension, Configures memory, 
+installs Python dependencies, and spins up both the Database Engine and AI 
+Daemon fully interconnected. Follow the manual steps below only if you are 
+installing explicitly on bare-metal servers or VMs.
