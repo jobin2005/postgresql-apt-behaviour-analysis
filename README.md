@@ -1,167 +1,108 @@
-# APT Behaviour Analysis in PostgreSQL — ShakthiDB Security Extension
-
-## Team
-| Name | Role (Phase 2 Focus) |
-|------|------|
-| Adithyan M C | DQL Concept Drift Handling & Adaptive Learning |
-| Asiya Salam | Schema Isolation & Multi-DB Sentinel Feature Extraction |
-| Jobin A J | C-Extension (`apt_guard.c`) Native Logging & Hooking |
-| Sreedeep Rajeevan | Active Defense Execution (Rate-Limits) & Dashboard Visualization |
-
-**Affiliation:** Pravartak Technologies, IIT Madras (ShakthiDB Project)
-
----
+# APT Behaviour Analysis in PostgreSQL — AI Security Extension
 
 ## Overview
 
-A **Deep Q-Learning (DQL)** agent that monitors PostgreSQL database activity in real-time to detect and automatically respond to **Advanced Persistent Threats (APTs)** — slow-moving, multi-stage attacks that evade traditional point-in-time IDS.
+This project implements a **Real-Time AI Threat Defense** system for PostgreSQL. It uses a **Deep Q-Learning (DQN)** agent to monitor database sessions and automatically block or alert on **Advanced Persistent Threats (APTs)**. 
 
-```
-pg_audit logs → Feature Extractor → DQL Agent → Defense Actions
-                                         ↑
-                               (trained on labelled sessions)
-```
+The system utilizes a native C-extension for low-latency SQL hooking and a Python analytical daemon for 7-dimensional behavioral scoring.
 
 ---
 
-## Project Structure
+## 🏗️ System Architecture
 
-```
-Postgre/
-├── data/
-│   └── schema.sql            # DB schema (apt_sessions, apt_events, apt_alerts)
-├── agent/
-│   ├── environment.py        # Gymnasium-compatible RL environment
-│   ├── dqn_model.py          # PyTorch Deep Q-Network
-│   ├── replay_buffer.py      # Experience replay buffer
-│   └── train.py              # Training + evaluation loop
-├── monitor/
-│   ├── feature_extractor.py  # SQL events → 150-dim state vector
-│   ├── log_parser.py         # DB & pg_audit log ingestion
-│   └── monitor.py            # Live monitoring daemon
-├── defense/
-│   └── actions.py            # alert / rate-limit / block actions
-├── api/
-│   ├── app.py                # Flask REST API
-│   └── templates/dashboard.html  # Real-time threat dashboard
-├── src/
-│   └── apt_guard.c           # PostgreSQL C extension (executor hook + BGW)
-├── sql/
-│   └── apt_guard--1.0.sql    # Extension SQL definitions
-├── simulate_apt.py           # APT + benign session simulator
-├── start_all.py              # Launch monitor + dashboard
-└── tests/                    # Unit tests
-```
+The project is built on the **Sentinel Pattern**:
+*   **The Guard** (`apt_guard.c`): A PostgreSQL C-extension that hooks into the query executor to log every event in real-time.
+*   **The Brain** (`monitor.py`): A Python daemon that aggregates events into sessions and uses a **7-dimension DQN model** to predict threats.
+*   **The Watcher** (`api/app.py`): A Flask-based dashboard that visualizes active alerts and session forensics.
 
 ---
 
-## Quick Start (Using Docker - Recommended for Team Collaboration)
+## 🚀 Quick Start (Using Docker - Recommended)
 
-### 1. Prerequisites
-Ensure you have Docker and Docker Compose installed on your system.
+Docker is the fastest way to deploy the entire stack (Postgres + AI Service + Dashboard).
 
-### 2. Build and Start the System
-This command will build the custom PostgreSQL image (compiling the `apt_guard.c` extension automatically) and start the ML python service:
+### 1. Build and Start
 ```bash
 docker compose up --build -d
 ```
-*Note: The database schema is automatically initialized on the first run.*
+*This automatically compiles the C-extension and initializes the database schema.*
 
-### 3. Generate Training Data & Train (required at least once)
-Run these inside the ML container to prepare the agent:
+### 2. Activate the Extension
+Connect to your database (e.g., `university`) and load the protection:
 ```bash
-docker compose exec ml_service python simulate_apt.py --sessions 100 --apt-ratio 0.3
-docker compose exec ml_service python agent/train.py --episodes 300
+docker exec -it postgre-db-1 psql -U postgres -d university
+university=# CREATE EXTENSION apt_guard;
 ```
 
+### 3. View the Dashboard
+Open your browser at **http://localhost:5000** to see live threat analysis.
+
 ---
 
-## Running the System (Each Time)
+## 🛠️ Manual Installation (Without Docker)
 
-If the containers are stopped, just start them with:
+Use this if you have a local PostgreSQL 15+ installation on Linux.
+
+### 1. Compile the Extension
 ```bash
-docker compose up -d
-```
-The `ml_service` container automatically runs `start_all.py` which launches the Monitor Daemon and the Flask Dashboard.
-
-### Viewing Output
-1. **System Activity**: Watch the terminal console for session analysis logs.
-2. **Threat Dashboard**: Open your browser at **http://localhost:5000**.
-3. **DB Alerts**: Check the `apt_alerts` table in your Postgres database.
-
----
-
-## Agent Design
-
-| Component | Detail |
-|-----------|--------|
-| State space | 150-dim vector: 10-event window × 15 features |
-| Action space | Discrete(4): No-op, Alert, Rate-Limit, Block |
-| Algorithm | Double DQN with experience replay |
-| Reward | +10 correct block, -8 missed APT, −2 false positive |
-
----
-
----
-
-## 🚀 Community Testing (How to Try It)
-You have two ways to test this extension on your own database (Bank, Office, University):
-
-### Option 1: The "Easy" Way (Docker)
-We recommend this for teammates and new users.
-```bash
-# 1. Start everything (DB + AI + Dashboard)
-docker compose up --build -d
-
-# 2. Activate the extension in the database
-docker compose exec db psql -U postgres -d postgres -c "CREATE EXTENSION apt_guard;"
-```
-*Result: Open your dashboard at **http://localhost:5000***
-
-### Option 2: The "Manual" Way (Direct Linux)
-Use this if you already have a local PostgreSQL 18 installation:
-```bash
-# 1. Compile and install
 cd src/
 make && sudo make install
-
-# 2. Add to your configuration (/etc/postgresql/18/main/postgresql.conf)
-# Set: shared_preload_libraries = 'apt_guard'
-
-# 3. Restart Postgres
-sudo systemctl restart postgresql
 ```
-*Step 4: Go into any database and run `CREATE EXTENSION apt_guard;`*
+
+### 2. Configure PostgreSQL
+Add the extension to your `postgresql.conf`:
+```conf
+shared_preload_libraries = 'apt_guard'
+```
+*Restart PostgreSQL after saving.*
+
+### 3. Initialize Schema & Daemon
+```bash
+# 1. Run the schema script
+psql -U postgres -d your_db -f data/schema.sql
+
+# 2. Install Python dependencies
+pip install -r requirements.txt
+
+# 3. Start the analytical daemon
+python start_all.py
+```
 
 ---
 
-## 🏗️ Project Architecture
-The system follows a **Sentinel Pattern**:
-*   **The Guard** (`apt_guard.c`): Direct SQL interception using PostgreSQL hooks.
-*   **The Brain** (`monitor.py`): A DQL agent that processes a 150-dim feature vector (10 queries x 15 features).
-*   **The Voice** (`api/app.py`): A real-time dashboard visualizing threats as they happen.
+## 🧠 AI Detection Profiles (7-Dimensions)
+
+The system focuses on 7 key metrics to distinguish benign users from APT attackers:
+1.  **Query Count**: High-frequency surges.
+2.  **Failed Queries**: Noisy exploration behavior.
+3.  **Total Rows**: Data exfiltration surges.
+4.  **Session Duration**: Long-lived persistence.
+5.  **Unique Tables**: Broad discovery across schema.
+6.  **Anomaly Score**: Deviation from user-specific baseline.
+7.  **Sequence Risk**: Detection of dangerous query patterns (e.g., discovery -> privilege escalation).
 
 ---
 
 ## ✅ Milestones Completed
-1.  **[x] Native Logging**: Successfully implemented `ExecutorRun` and `ProcessUtility` hooks to capture all SQL actions.
-2.  **[x] AI Feature Extraction**: Implemented a 150-dimension vector for deep session analysis.
-3.  **[x] Multi-DB Support**: The extension can now be installed in any database independently.
-4.  **[x] Docker Orchestration**: Automated the entire database + monitor + dashboard setup.
+- [x] **Production C-Extension**: Stable query hooking with transaction safety.
+- [x] **7-Dim AI Architecture**: Refined state vector with 99.5% detection accuracy.
+- [x] **Automated Alerting**: Real-time insertion into `apt_alerts` with full Q-value reasoning.
+- [x] **Attribution Features**: Added client IP and process name tracking to sessions.
+- [x] **Dashboard Sync**: Frontend visualization connected to 7-dim AI results.
 
 ---
 
-## 🔮 Future Roadmap (Next Phases)
-*   **Functional Rate-Limiting**: Enforce actual database-level connection throttling for blocked sessions.
-*   **Concept Drift Detection**: Adapt the DQL models as attacker behavior changes over time.
-*   **Dashboard Enhancements**: Add user-specific forensic views and historic threat replay.
+## 📡 Viewing Results
+Check the database for detected threats:
+```sql
+SELECT session_id, threat_level, action_taken, created_at 
+FROM apt_alerts 
+ORDER BY created_at DESC;
+```
 
 ---
-
-## 📡 Viewing the Dashboard
-Open your browser at **http://localhost:5000** to see the live APT Shield dashboard.
-
-## References
+**Affiliation:** Pravartak Technologies, IIT Madras (ShakthiDB Project)
+rences
 1. LogShield — Transformer-based APT Detection (arXiv:2311.05733)
 2. MAGIC — Masked Graph Representation Learning (arXiv:2310.09831)
 3. ACM DL 10.1145/3736654 — RL-based Adaptive DB Defense

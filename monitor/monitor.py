@@ -67,26 +67,12 @@ def fetch_sessions(conn):
     return sessions
 
 
-# ─────────────────────────────────────────────
-# LOAD MODEL
-# ─────────────────────────────────────────────
-def load_agent(path):
-    model = DQN(state_dim())
-    model.load_state_dict(torch.load(path, map_location="cpu"))
-    model.eval()
-    return model
 
 
 # ─────────────────────────────────────────────
 # MAIN LOOP
 # ─────────────────────────────────────────────
 def run_monitor():
-    try:
-        agent = load_agent("checkpoints/dqn_best.pt")
-        logger.info("AI Agent loaded successfully.")
-    except Exception as exc:
-        agent = None
-        logger.warning("AI Agent failed to load (Dimension mismatch). Monitoring will continue in 'Builders-Only' mode: %s", exc)
 
     while True:
         try:
@@ -114,21 +100,22 @@ def run_monitor():
             continue
 
         for s in sessions:
-            state = extract_state(conn, s)
-
-            if agent:
-                q_vals = agent.q_values(state)
-                action = int(max(range(len(q_vals)), key=lambda i: q_vals[i]))
-                threat = 1 / (1 + math.exp(-max(q_vals)))
+            try:
+                state = extract_state(conn, s)
+                # Use the new inference pipeline to score and alert
+                from agent.inference import score_and_alert
+                result = score_and_alert(conn, s["session_id"], state)
 
                 logger.info(
-                    "session=%d action=%d threat=%.3f",
-                    s["session_id"], action, threat
+                    "session=%d action=%s (%d) threat=%s alert_id=%s",
+                    s["session_id"], 
+                    result["action_taken"],
+                    result["action"],
+                    result["threat_level"],
+                    result["alert_id"]
                 )
-
-                execute_action(action, s["session_id"], threat, q_vals)
-            else:
-                logger.info("session=%d (Builders-Only Mode: Analysis processed but skipping AI action)", s["session_id"])
+            except Exception as exc:
+                logger.error("Error processing session %d: %s", s["session_id"], exc)
 
         conn.close()
         time.sleep(5)
@@ -136,3 +123,29 @@ def run_monitor():
 
 if __name__ == "__main__":
     run_monitor()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

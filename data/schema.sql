@@ -45,7 +45,12 @@ CREATE TABLE IF NOT EXISTS apt_sessions (
 
     anomaly_score FLOAT DEFAULT 0,
 
-    session_duration FLOAT DEFAULT 0  -- seconds
+    session_duration FLOAT DEFAULT 0,  -- seconds
+    
+    user_name TEXT,
+    client_addr INET,
+    origin_process TEXT,
+    threat_label INT DEFAULT 0
 );
 
 
@@ -86,9 +91,12 @@ CREATE TABLE IF NOT EXISTS apt_alerts (
     session_id INT REFERENCES apt_sessions(session_id),
 
     threat_level TEXT,
+    threat_score FLOAT DEFAULT 0,
     action_taken TEXT,
+    q_values JSONB,
 
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    resolved BOOLEAN DEFAULT FALSE
 );
 
 -- For fast event lookup by user

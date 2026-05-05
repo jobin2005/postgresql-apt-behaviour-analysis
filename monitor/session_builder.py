@@ -11,7 +11,7 @@ from collections import defaultdict
 
 from datetime import timedelta
 
-WINDOW_SIZE = 10
+WINDOW_SIZE = 100
 TIME_THRESHOLD = timedelta(minutes=5)
 
 
@@ -30,15 +30,16 @@ def get_conn():
 
 
 # ─────────────────────────────────────────────
-# FETCH EVENTS
+# FETCH EVENTS (UNPROCESSED ONLY)
 # ─────────────────────────────────────────────
 def fetch_events(conn):
     with conn.cursor() as cur:
         cur.execute("""
-            SELECT event_id,user_id, event_time, query_type,
+            SELECT event_id, user_id, event_time, query_type,
                    query_text, rows_accessed,
                    success_flag, table_names
             FROM apt_events
+            WHERE session_id IS NULL
             ORDER BY user_id, event_time
         """)
         rows = cur.fetchall()
@@ -47,14 +48,14 @@ def fetch_events(conn):
 
     for r in rows:
         events_by_user[r[1]].append({
-    "event_id": r[0],   
-    "time": r[2],
-    "type": r[3],
-    "query": r[4] or "",
-    "rows": r[5] or 0,
-    "success": r[6],
-    "tables": r[7] or []
-})
+            "event_id": r[0],   
+            "time": r[2],
+            "type": r[3],
+            "query": r[4] or "",
+            "rows": r[5] or 0,
+            "success": r[6],
+            "tables": r[7] or []
+        })
 
     return events_by_user
 
@@ -74,7 +75,6 @@ def build_sessions(events):
         last_event = current_session[-1]
         time_gap = ev["time"] - last_event["time"]
 
-    
         if len(current_session) >= WINDOW_SIZE or time_gap > TIME_THRESHOLD:
             sessions.append(current_session)
             current_session = [ev]
