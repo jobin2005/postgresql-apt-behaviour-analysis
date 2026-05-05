@@ -4,7 +4,7 @@ This repository contains the source code for **APT Guard**, a high-performance P
 
 ---
 
-## Extension Setup & Deployment Guide
+## 🚀 A-Z Setup & Deployment Guide
 
 Follow these steps to get the system running from scratch.
 
@@ -16,13 +16,17 @@ cd postgresql-apt-behaviour-analysis
 
 ### 2. Choose Your Deployment Method
 
-#### Option A: Docker (Fastest & Recommended)
-Everything is pre-configured in containers.
-1.  **Start the containers**:
+### Option A: Docker (Fastest & Recommended)
+Everything is pre-configured in containers, but you can customize credentials in the `.env` file.
+1.  **Prep Environment**:
+    ```bash
+    cp .env.example .env
+    ```
+2.  **Start the containers**:
     ```bash
     docker compose up --build -d
     ```
-2.  **Verify components**:
+3.  **Verify components**:
     - Database is at `localhost:5433`
     - AI Service is running in the background.
     - Dashboard is at `http://localhost:5000`
@@ -34,7 +38,12 @@ Use this if you want to run directly on your host.
     cd src/
     make && sudo make install
     ```
-2.  **Enable the Extension**: Add `apt_guard` to `shared_preload_libraries` in your `postgresql.conf` and restart Postgres.
+2.  **Prep Environment**:
+    ```bash
+    cp .env.example .env
+    # Edit .env with your local Postgres settings
+    ```
+3.  **Enable the Extension**: Add `apt_guard` to `shared_preload_libraries` in your `postgresql.conf` and restart Postgres.
 3.  **Start Backend**:
     ```bash
     pip install -r requirements.txt
@@ -56,33 +65,45 @@ university=# CREATE EXTENSION IF NOT EXISTS apt_guard;
 
 ---
 
-### 4. Verification Walkthrough (Sample Data)
+---
 
-To verify that everything is working, you can simulate a few queries and check the logs.
+## 🔍 Detailed Verification Lab (Tracing the Data)
 
-#### Step A: Insert Sample Benign Activity
-Run a few normal queries to see them being logged:
-```sql
-university=# CREATE TABLE IF NOT EXISTS sample_data (id INT, val TEXT);
-university=# INSERT INTO sample_data VALUES (1, 'A'), (2, 'B');
-university=# SELECT * FROM sample_data;
+To see how the data flows through the entire pipeline, followed these steps after setting up:
+
+### 1. Generate Activity
+You can use the built-in simulator to generate mix of benign and APT activity:
+```bash
+# Inside Docker
+docker exec -it postgre-ml_service-1 python simulate_apt.py --sessions 10
+
+# Native
+python simulate_apt.py --sessions 10
 ```
 
-#### Step B: Check Raw Event Logs
-Verify that the C-extension is capturing your queries:
-```sql
-university=# SELECT query_text, event_time FROM apt_events ORDER BY event_time DESC LIMIT 5;
-```
+### 2. Trace the Data Flow (SQL Queries)
 
-#### Step C: Check AI Alerts
-If you run an aggressive script (like a massive data dump or a series of failures), the AI will generate an alert:
-```sql
-university=# SELECT * FROM apt_alerts;
-```
+| Pipeline Step | Table to Check | SQL Query | Purpose |
+| :--- | :--- | :--- | :--- |
+| **Raw Capture** | `apt_events` | `SELECT * FROM apt_events ORDER BY event_time DESC LIMIT 10;` | Verification that the C-extension is hooking queries. |
+| **Session Building** | `apt_sessions` | `SELECT session_id, query_count, failed_query_count, anomaly_score FROM apt_sessions;` | View how `session_builder.py` aggregates events. |
+| **Learning Baselines** | `apt_user_profile` | `SELECT * FROM apt_user_profile;` | Check how `userprofile_builder.py` calculates "Normal" behavior. |
+| **Pattern Detection** | `apt_sequence_patterns` | `SELECT * FROM apt_sequence_patterns ORDER BY risk_score DESC;` | View detected risky query sequences in `sequence_builder.py`. |
+| **Final Decision** | `apt_alerts` | `SELECT a.*, s.user_id FROM apt_alerts a JOIN apt_sessions s ON a.session_id = s.session_id;` | See the final AI decision and defensive action. |
 
 ---
 
-## 🏗️ Technical Architecture: 7-Dimension AI
+## 🛠️ Key Python Components
+
+*   **`monitor/monitor.py`**: The main orchestrator that runs all the builders below in a loop.
+*   **`monitor/session_builder.py`**: Bundles raw SQL events into Logical Sessions.
+*   **`monitor/userprofile_builder.py`**: Calculates the Mean/Std values for "Normal" user behavior.
+*   **`monitor/sequence_builder.py`**: Identifies repeating patterns of SQL queries to find "Attack Chain" signatures.
+*   **`agent/inference.py`**: The AI "Brain" that scores sessions and inserts alerts.
+
+---
+
+## 🧠 AI Detection Profiles (7-Dimensions)
 
 The system focuses on 7 key session metrics to distinguish benign users from APT attackers:
 1.  **Query Count**: High-frequency surges.
