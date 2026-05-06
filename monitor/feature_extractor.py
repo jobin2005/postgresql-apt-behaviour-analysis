@@ -6,6 +6,7 @@ Creates a state vector from apt_sessions + user_profile + sequence_patterns
 
 import psycopg2
 import numpy as np
+import os
 
 
 # ─────────────────────────────────────────────
@@ -13,11 +14,11 @@ import numpy as np
 # ─────────────────────────────────────────────
 def get_conn():
     return psycopg2.connect(
-        host="localhost",
-        port=5433,
-        database="postgres",
-        user="postgres",
-        password="postgres"
+        host=os.getenv("DB_HOST", "localhost"),
+        port=os.getenv("DB_PORT", "5433"),
+        database=os.getenv("DB_NAME", "postgres"),
+        user=os.getenv("DB_USER", "postgres"),
+        password=os.getenv("DB_PASSWORD", "postgres")
     )
 
 

@@ -6,6 +6,7 @@ Builds sequence patterns from apt_events and stores them in apt_sequence_pattern
 
 import psycopg2
 from collections import defaultdict, Counter
+import os
 
 WINDOW_SIZE = 3   # length of sequence (can tune later)
 
@@ -15,14 +16,12 @@ WINDOW_SIZE = 3   # length of sequence (can tune later)
 # ─────────────────────────────────────────────
 def get_conn():
     return psycopg2.connect(
-        host="localhost",
-        port=5433,
-        database="postgres",
-        user="postgres",
-        password="postgres"
+        host=os.getenv("DB_HOST", "localhost"),
+        port=os.getenv("DB_PORT", "5433"),
+        database=os.getenv("DB_NAME", "postgres"),
+        user=os.getenv("DB_USER", "postgres"),
+        password=os.getenv("DB_PASSWORD", "postgres")
     )
-
-
 # ─────────────────────────────────────────────
 # FETCH EVENTS
 # ─────────────────────────────────────────────
@@ -94,12 +93,11 @@ def insert_sequences(conn, sequence_counts):
                 VALUES (%s, %s, %s)
                 ON CONFLICT (sequence)
                 DO UPDATE SET
-                    frequency = apt_sequence_patterns.frequency + EXCLUDED.frequency,
+                    frequency = EXCLUDED.frequency,   -- ✅ FIXED
                     risk_score = EXCLUDED.risk_score
             """, (seq, freq, risk))
 
     conn.commit()
-
 
 # ─────────────────────────────────────────────
 # MAIN

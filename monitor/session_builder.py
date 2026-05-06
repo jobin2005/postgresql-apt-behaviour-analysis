@@ -8,7 +8,7 @@ Sliding window session builder with:
 
 import psycopg2
 from collections import defaultdict
-
+import os 
 from datetime import timedelta
 
 WINDOW_SIZE = 10
@@ -20,13 +20,12 @@ TIME_THRESHOLD = timedelta(minutes=5)
 # ─────────────────────────────────────────────
 def get_conn():
     return psycopg2.connect(
-        host="localhost",
-        port=5433,
-        database="postgres",
-        user="postgres",
-        password="postgres"
+        host=os.getenv("DB_HOST", "localhost"),
+        port=os.getenv("DB_PORT", "5433"),
+        database=os.getenv("DB_NAME", "postgres"),
+        user=os.getenv("DB_USER", "postgres"),
+        password=os.getenv("DB_PASSWORD", "postgres")
     )
-
 
 # ─────────────────────────────────────────────
 # FETCH EVENTS
@@ -37,7 +36,11 @@ def fetch_events(conn):
             SELECT event_id,user_id, event_time, query_type,
                    query_text, rows_accessed,
                    success_flag, table_names
-            FROM apt_events
+                    FROM apt_events
+                    WHERE session_id is NULL
+                    AND query_text NOT ILIKE 'SELECT 1 FROM ONLY%'
+                    AND query_text NOT ILIKE '%pg_catalog%'
+                    AND query_text NOT ILIKE '%information_schema%'
             ORDER BY user_id, event_time
         """)
         rows = cur.fetchall()
@@ -45,17 +48,30 @@ def fetch_events(conn):
     events_by_user = defaultdict(list)
 
     for r in rows:
+        query_text = (r[4] or "").lower()
+        table_names = r[7] or []
+
+        # 🚫 FILTER SYSTEM QUERIES (IMPORTANT)
+        if (
+            "pg_catalog" in query_text or
+            "information_schema" in query_text or
+            any(str(t).startswith("pg_") for t in table_names)
+        ):
+            continue  # skip this event
+
         events_by_user[r[1]].append({
-    "event_id": r[0],   
-    "time": r[2],
-    "type": r[3],
-    "query": r[4] or "",
-    "rows": r[5] or 0,
-    "success": r[6],
-    "tables": r[7] or []
-})
+            "event_id": r[0],
+            "time": r[2],
+            "type": r[3],
+            "query": r[4] or "",
+            "rows": r[5] or 0,
+            "success": r[6],
+            "tables": table_names
+        })
 
     return events_by_user
+
+
 
 
 # ─────────────────────────────────────────────
@@ -233,20 +249,55 @@ def update_event_sessions(conn, session_id, session):
 # MAIN
 # ─────────────────────────────────────────────
 def run_builder():
+    print("🚀 SESSION BUILDER STARTED", flush=True)
+
     conn = get_conn()
+    print("BUILDER DB:", conn.get_dsn_parameters(), flush=True)
+
     events_by_user = fetch_events(conn)
 
+    print("DEBUG USERS:", len(events_by_user), flush=True)
+
+    if not events_by_user:
+        print("No new events to process", flush=True)
+        conn.close()
+        return
+
     for user, events in events_by_user.items():
+
+        #  skip if all events were filtered (system queries)
+        if not events:
+            print(f" Skipping user {user} (no valid events)", flush=True)
+            continue
+
+        print(f"\n👤 USER: {user} | EVENTS: {len(events)}", flush=True)
+
         sessions = build_sessions(events)
 
+        if not sessions:
+            print(" No sessions formed", flush=True)
+            continue
+
+        print(f" SESSIONS CREATED: {len(sessions)}", flush=True)
+
         for s in sessions:
+
+            # extra safety (should not happen, but good practice)
+            if not s:
+                continue
+
+            print("➡ inserting session", flush=True)
+
             data = compute_features(conn, user, s)
 
-            session_id = insert_session(conn, data)   # create session
- 
-            update_event_sessions(conn, session_id, s)  
+            session_id = insert_session(conn, data)
+
+            print(f"inserted session_id: {session_id}", flush=True)
+
+            update_event_sessions(conn, session_id, s)
 
     conn.close()
+    print("SESSION BUILDER COMPLETED\n", flush=True)
 
 
 if __name__ == "__main__":

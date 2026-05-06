@@ -4,7 +4,7 @@
 -- ===============================
 CREATE TABLE IF NOT EXISTS apt_events (
     event_id SERIAL PRIMARY KEY,
-    session_id INT
+    session_id INT,
     user_id TEXT NOT NULL,
 
     session_hint TEXT,  -- optional (can help grouping if available)
@@ -110,5 +110,4 @@ ON apt_alerts(session_id);
 
 CREATE INDEX IF NOT EXISTS idx_alerts_time 
 ON apt_alerts(created_at);
-
 

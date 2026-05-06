@@ -5,20 +5,19 @@ Builds/updates apt_user_profile from apt_sessions.
 """
 
 import psycopg2
-
+import os 
 
 # ─────────────────────────────────────────────
 # DB CONNECTION
 # ─────────────────────────────────────────────
 def get_conn():
     return psycopg2.connect(
-        host="localhost",
-        port=5433,
-        database="postgres",
-        user="postgres",
-        password="postgres"
+        host=os.getenv("DB_HOST", "localhost"),
+        port=os.getenv("DB_PORT", "5433"),
+        database=os.getenv("DB_NAME", "postgres"),
+        user=os.getenv("DB_USER", "postgres"),
+        password=os.getenv("DB_PASSWORD", "postgres")
     )
-
 
 # ─────────────────────────────────────────────
 # UPDATE USER PROFILES
@@ -34,11 +33,11 @@ def update_user_profiles(conn):
                 normal_tables_accessed
             )
             SELECT
-                user_id,
-                AVG(query_count) AS avg_q,
-                AVG(total_rows_accessed) AS avg_rows,
-                AVG(session_duration) AS avg_duration,
-                AVG(unique_tables) AS avg_tables
+                 user_id,
+                 ROUND(AVG(query_count)::numeric, 2),
+                 ROUND(AVG(total_rows_accessed)::numeric, 2),
+                 ROUND(AVG(session_duration)::numeric, 2),
+                 ROUND(AVG(unique_tables)::numeric, 2)
             FROM apt_sessions
             GROUP BY user_id
             ON CONFLICT (user_id)
