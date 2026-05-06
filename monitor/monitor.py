@@ -118,7 +118,7 @@ def run_monitor():
                 logger.error("Error processing session %d: %s", s["session_id"], exc)
 
         conn.close()
-        time.sleep(5)
+        time.sleep(15)
 
 
 if __name__ == "__main__":
