@@ -1,4 +1,4 @@
-# APT Behaviour Analysis in PostgreSQL — AI Security Extension
+# APT Behaviour Analysis in PostgreSQL — APT GUARD Extension
 
 This repository contains the source code for **APT Guard**, a high-performance PostgreSQL security extension coupled with a Resident Deep Q-Learning (DQN) agent designed to detect and mitigate Advanced Persistent Threats (APTs) in real-time.
 
@@ -102,7 +102,7 @@ python checkpoints/ultra_attack.py
 
 ---
 
-## 🧠 AI Detection Profiles (7-Dimensions)
+##  AI Detection Profiles (7-Dimensions)
 
 The system focuses on 7 key session metrics to distinguish benign users from APT attackers:
 1.  **Query Count**: High-frequency surges.
@@ -115,7 +115,7 @@ The system focuses on 7 key session metrics to distinguish benign users from APT
 
 ---
 
-## ✅ Milestones
+##  Milestones
 - [x] **Native C-Logging**: Implemented low-latency executor hooks in `apt_guard.c`.
 - [x] **AI Model**: Freshly trained 7-dimension DQN with **99.5% accuracy**.
 - [x] **Real-Time Alerting**: Immediate population of `apt_alerts` table upon threat detection.
