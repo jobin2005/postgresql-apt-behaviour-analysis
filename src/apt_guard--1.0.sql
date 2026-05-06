@@ -1,32 +1,5 @@
 
 -- ===============================
--- APT EVENTS TABLE (RAW INPUT)
--- ===============================
-CREATE TABLE IF NOT EXISTS apt_events (
-    event_id SERIAL PRIMARY KEY,
-    session_id INT REFERENCES apt_sessions(session_id),
-    user_id TEXT NOT NULL,
-
-    session_hint TEXT,  -- optional (can help grouping if available)
-
-    query_type TEXT,
-    query_text TEXT,
-
-    table_names TEXT[],  -- multiple tables per query
-
-    event_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-
-    duration_ms FLOAT,
-    rows_accessed INT,
-
-    success_flag BOOLEAN,
-    error_code TEXT,
-
-    ip_address TEXT
-);
-
-
--- ===============================
 -- APT SESSIONS TABLE (CORE LOGIC)
 -- ===============================
 CREATE TABLE IF NOT EXISTS apt_sessions (
@@ -46,7 +19,40 @@ CREATE TABLE IF NOT EXISTS apt_sessions (
 
     anomaly_score FLOAT DEFAULT 0,
 
-    session_duration FLOAT DEFAULT 0  -- seconds
+    session_duration FLOAT DEFAULT 0,  -- seconds
+    
+    user_name TEXT,
+    client_addr INET,
+    origin_process TEXT,
+    threat_label INT DEFAULT 0
+);
+
+
+-- ===============================
+-- APT EVENTS TABLE (RAW INPUT)
+-- ===============================
+CREATE TABLE IF NOT EXISTS apt_events (
+    event_id SERIAL PRIMARY KEY,
+    session_id INT REFERENCES apt_sessions(session_id),
+    user_id TEXT NOT NULL,
+
+    session_hint TEXT,  -- optional (can help grouping if available)
+
+    query_type TEXT,
+    query_text TEXT,
+
+    table_names TEXT[],  -- multiple tables per query
+
+    event_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    duration_ms FLOAT,
+    rows_accessed INT,
+    query_hash TEXT,
+
+    success_flag BOOLEAN,
+    error_code TEXT,
+
+    ip_address TEXT
 );
 
 
@@ -70,7 +76,7 @@ CREATE TABLE IF NOT EXISTS apt_user_profile (
 CREATE TABLE IF NOT EXISTS apt_sequence_patterns (
     pattern_id SERIAL PRIMARY KEY,
 
-    sequence TEXT UNIQUE,   -- ✅ add UNIQUE here directly
+    sequence TEXT UNIQUE,
 
     frequency INT DEFAULT 0,
 
@@ -87,10 +93,14 @@ CREATE TABLE IF NOT EXISTS apt_alerts (
     session_id INT REFERENCES apt_sessions(session_id),
 
     threat_level TEXT,
+    threat_score FLOAT DEFAULT 0,
     action_taken TEXT,
+    q_values JSONB,
 
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    resolved BOOLEAN DEFAULT FALSE
 );
+
 
 -- For fast event lookup by user
 CREATE INDEX IF NOT EXISTS idx_events_user 
@@ -108,6 +118,6 @@ ON apt_sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_alerts_session 
 ON apt_alerts(session_id);
 
+-- Alerts time lookup
 CREATE INDEX IF NOT EXISTS idx_alerts_time 
 ON apt_alerts(created_at);
-

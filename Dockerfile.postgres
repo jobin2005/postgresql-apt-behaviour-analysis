@@ -20,9 +20,8 @@ COPY src/apt_guard.control ./
 # Build and install the extension
 RUN make && make install
 
-# Copy initialization script
-# This script will be executed when the container starts for the first time
-COPY data/schema.sql /docker-entrypoint-initdb.d/01_schema.sql
+# Use a simple shell script to create the extension on startup
+RUN echo "CREATE EXTENSION IF NOT EXISTS apt_guard;" > /docker-entrypoint-initdb.d/init_extension.sql
 
 # Ensure that the extension is preloaded by configuring postgresql.conf
 CMD ["postgres", "-c", "shared_preload_libraries=apt_guard"]

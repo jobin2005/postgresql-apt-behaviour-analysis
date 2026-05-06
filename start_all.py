@@ -58,7 +58,8 @@ def main():
                 print(f"\n Detected checkpoint at {CHECKPOINT}! Launching Monitor Daemon...")
                 # Use same env with PYTHONPATH as dashboard
                 monitor_proc = subprocess.Popen(
-                    [sys.executable, str(MONITOR_SCRIPT)],
+                    [sys.executable, "-m", "monitor.monitor"],
+                    cwd=str(ROOT),
                     stdout=sys.stdout,
                     stderr=sys.stderr,
                     env=env

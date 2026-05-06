@@ -113,6 +113,12 @@ Then verify the detection pipeline by checking the database:
 docker exec -it postgresql-apt-behaviour-analysis-db-1 psql -U postgres -d postgres
 ```
 
+
+To check logs:
+```bash
+docker logs -f postgresql-apt-behaviour-analysis-ml_service-1
+```
+
 ### Data Flow Verification (SQL Queries)
 
 | Pipeline Step | Table | SQL Query | Purpose |

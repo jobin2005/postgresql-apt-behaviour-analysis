@@ -93,9 +93,9 @@ def _insert_session(cur, user, label, base_time):
     origin = random.choice(origins) if label > 0 else "/usr/bin/web_app"
 
     cur.execute(
-        """INSERT INTO apt_sessions (user_name, client_addr, start_time, threat_label, backend_pid, origin_process)
-           VALUES (%s, %s, %s, %s, %s, %s) RETURNING session_id""",
-        (user, "192.168.1." + str(random.randint(1, 254)), base_time, label, mock_pid, origin),
+        """INSERT INTO apt_sessions (user_id, start_time, threat_label, origin_process)
+           VALUES (%s, %s, %s, %s) RETURNING session_id""",
+        (user, base_time, label, origin),
     )
     return cur.fetchone()[0]
 
@@ -109,14 +109,18 @@ def _insert_event(cur, session_id, cmd, schema, obj, rows, ts, high_entropy=Fals
         # Normal users have moderate query times
         duration = round(random.uniform(20.0, 500.0), 2)
 
+    # query_text and table_names simulation
+    query_text = f"{cmd} FROM {schema}.{obj}"
+    table_names = [obj]
+
     cur.execute(
         """INSERT INTO apt_events
-               (session_id, event_time, command_type, object_schema, object_name,
-                rows_affected, query_hash, duration_ms)
-           VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
-        (session_id, ts, cmd, schema, obj, rows,
+               (session_id, event_time, query_type, query_text, table_names,
+                rows_accessed, query_hash, duration_ms, user_id)
+           VALUES (%s, %s, %s, %s, %s, %s, %s, %s, (SELECT user_id FROM apt_sessions WHERE session_id = %s))""",
+        (session_id, ts, cmd, query_text, table_names, rows,
          _hash_query(cmd, schema, obj, high_entropy=high_entropy),
-         duration),
+         duration, session_id),
     )
 
 
@@ -133,11 +137,28 @@ def simulate_benign(conn, n=20, live=False):
                 sid = _insert_session(cur, user, 0, base)
                 # Varied session length (3 to 25 events)
                 num_events = random.randint(3, 25)
+                total_rows = 0
+                tables = set()
+                last_ts = base
+                
                 for j in range(num_events):
                     cmd, schema, obj, rows = random.choice(BENIGN_EVENTS)
+                    total_rows += rows
+                    tables.add(obj)
                     # Random time gaps (5s to 120s)
                     ts = base + timedelta(seconds=j * random.randint(5, 120))
+                    last_ts = ts
                     _insert_event(cur, sid, cmd, schema, obj, rows, ts, high_entropy=False)
+                
+                # Update session metrics
+                duration = (last_ts - base).total_seconds()
+                cur.execute("""
+                    UPDATE apt_sessions 
+                    SET query_count = %s, total_rows_accessed = %s, 
+                        unique_tables = %s, session_duration = %s,
+                        end_time = %s
+                    WHERE session_id = %s
+                """, (num_events, total_rows, len(tables), duration, last_ts, sid))
     print(f"[Simulator] Inserted {n} benign sessions with varied lengths.")
 
 
@@ -162,6 +183,12 @@ def simulate_apt(conn, n=7, live=False):
                     stages = stages[:random.randint(1, 2)]
 
                 offset_sec = 0
+                total_rows = 0
+                tables = set()
+                query_count = 0
+                failed_count = 0
+                priv_flag = False
+
                 for stage_name in stages:
                     # APTs are slow — minutes to hours between stages
                     offset_sec += random.randint(300, 3600)
@@ -173,6 +200,9 @@ def simulate_apt(conn, n=7, live=False):
                         ts = base + timedelta(seconds=offset_sec)
                         offset_sec += random.randint(10, 60)
                         _insert_event(cur, sid, cmd, schema, obj, rows, ts, high_entropy=False)
+                        total_rows += rows
+                        tables.add(obj)
+                        query_count += 1
 
                     # Actual attack stage events
                     for cmd, schema, obj, rows in APT_STAGES[stage_name]:
@@ -180,6 +210,22 @@ def simulate_apt(conn, n=7, live=False):
                         # attackers might wait between commands too
                         offset_sec += random.randint(30, 600)
                         _insert_event(cur, sid, cmd, schema, obj, rows, ts, high_entropy=True)
+                        total_rows += rows
+                        tables.add(obj)
+                        query_count += 1
+                        if stage_name == "privilege_escalation":
+                            priv_flag = True
+
+                # Update session metrics
+                last_ts = base + timedelta(seconds=offset_sec)
+                cur.execute("""
+                    UPDATE apt_sessions 
+                    SET query_count = %s, total_rows_accessed = %s, 
+                        unique_tables = %s, session_duration = %s,
+                        failed_query_count = %s, privilege_escalation_flag = %s,
+                        end_time = %s
+                    WHERE session_id = %s
+                """, (query_count, total_rows, len(tables), offset_sec, failed_count, priv_flag, last_ts, sid))
                     
     print(f"[Simulator] Inserted {n} APT sessions (partials included, with added noise).")
 
