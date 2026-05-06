@@ -17,7 +17,7 @@ cd postgresql-apt-behaviour-analysis
 ### 2. Choose Your Deployment Method
 
 ### Option A: Docker (Fastest & Recommended)
-Everything is pre-configured in containers, but you can customize credentials in the `.env` file.
+
 1.  **Prep Environment**:
     ```bash
     cp .env.example .env
@@ -26,10 +26,17 @@ Everything is pre-configured in containers, but you can customize credentials in
     ```bash
     docker compose up --build -d
     ```
-3.  **Verify components**:
-    - Database is at `localhost:5433`
-    - AI Service is running in the background.
-    - Dashboard is at `http://localhost:5000`
+3.  **Verify containers are running**:
+    ```bash
+    docker ps
+    ```
+    You should see two containers:
+    - `postgresql-apt-behaviour-analysis-db-1` — PostgreSQL 15 with `apt_guard` extension
+    - `postgresql-apt-behaviour-analysis-ml_service-1` — Python ML service + Dashboard
+
+    **Endpoints:**
+    - Database: `localhost:5433`
+    - Dashboard: `http://localhost:5000`
 
 #### Option B: Native Linux Installation
 Use this if you want to run directly on your host.
@@ -44,7 +51,7 @@ Use this if you want to run directly on your host.
     # Edit .env with your local Postgres settings
     ```
 3.  **Enable the Extension**: Add `apt_guard` to `shared_preload_libraries` in your `postgresql.conf` and restart Postgres.
-3.  **Start Backend**:
+4.  **Start Backend**:
     ```bash
     pip install -r requirements.txt
     python start_all.py
@@ -53,52 +60,79 @@ Use this if you want to run directly on your host.
 ---
 
 ### 3. Activating the Protection (`apt_guard`)
-Once the database is running, you must load the extension into the specific database you want to protect (e.g., `university`).
+
+> **Note:** The Docker init script (`schema.sql`) pre-creates some tables. You must drop them first before the extension can take ownership.
 
 ```bash
 # Enter the psql terminal
-docker exec -it postgre-db-1 psql -U postgres -d university
+docker exec -it postgresql-apt-behaviour-analysis-db-1 psql -U postgres -d postgres
+```
 
-# Run this once inside psql:
-university=# CREATE EXTENSION IF NOT EXISTS apt_guard;
+Run these commands inside psql:
+```sql
+-- Drop pre-created tables so the extension can own them
+DROP TABLE IF EXISTS apt_alerts, apt_sessions, apt_user_profile, apt_sequence_patterns, apt_events CASCADE;
+
+-- Load the extension (this creates all tables automatically)
+CREATE EXTENSION apt_guard;
+
+-- Verify it loaded
+\dx
+
+-- Exit psql
+\q
 ```
 
 ---
 
----
+### 4. Train the AI Model
 
-## 🔍 Detailed Verification Lab (A to Z)
+The system needs a trained DQN model before it can detect threats. Run these commands in order:
 
-To verify the system end-to-end, follow this data tracing lab:
-
-### 1. Generate Malicious Activity
-Use the built-in attack scripts to simulate noisy threats:
 ```bash
-# Inside Docker (Recommended)
-docker exec -it postgre-ml_service-1 python checkpoints/ultra_attack.py
+# Step 1: Generate synthetic training data (5000 sessions)
+docker exec -it postgresql-apt-behaviour-analysis-ml_service-1 python data/generate_training_data.py --sessions 5000
 
-# Native
-# Ensure you have psycopg2 installed: pip install psycopg2-binary
-python checkpoints/ultra_attack.py
+# Step 2: Train the DQN agent (2000 episodes)
+docker exec -it postgresql-apt-behaviour-analysis-ml_service-1 python agent/train.py --episodes 2000
 ```
 
-### 2. Trace the Data Flow (SQL Queries)
+Once training completes, the Monitor Daemon will **automatically start** inside the container (it polls for the checkpoint file).
 
-| Pipeline Step | Table to Check | SQL Query | Purpose |
+---
+
+### 5. Simulate Attacks & Verify
+
+```bash
+# Run the APT simulation script
+docker exec -it postgresql-apt-behaviour-analysis-ml_service-1 python simulate_apt.py
+```
+
+Then verify the detection pipeline by checking the database:
+```bash
+docker exec -it postgresql-apt-behaviour-analysis-db-1 psql -U postgres -d postgres
+```
+
+### Data Flow Verification (SQL Queries)
+
+| Pipeline Step | Table | SQL Query | Purpose |
 | :--- | :--- | :--- | :--- |
-| **1. Raw Hooking** | `apt_events` | `SELECT * FROM apt_events ORDER BY event_time DESC LIMIT 10;` | Confirm C-extension is capturing SQL. |
-| **2. Sessionizing** | `apt_sessions` | `SELECT session_id, query_count, failed_query_count, anomaly_score FROM apt_sessions;` | See how events are bundled by `session_builder.py`. |
-| **3. Profiling** | `apt_user_profile` | `SELECT * FROM apt_user_profile;` | Check how `userprofile_builder.py` learns baselines. |
-| **4. Sequences** | `apt_sequence_patterns` | `SELECT * FROM apt_sequence_patterns;` | View risky sequences found by `sequence_builder.py`. |
-| **5. AI Alerts** | `apt_alerts` | `SELECT * FROM apt_alerts ORDER BY created_at DESC;` | View the final AI critical threat alerts. |
+| **1. Raw Hooking** | `apt_events` | `SELECT * FROM apt_events ORDER BY event_time DESC LIMIT 10;` | Confirm C-extension is capturing SQL |
+| **2. Sessionizing** | `apt_sessions` | `SELECT session_id, query_count, failed_query_count, anomaly_score FROM apt_sessions;` | See how events are bundled by `session_builder.py` |
+| **3. Profiling** | `apt_user_profile` | `SELECT * FROM apt_user_profile;` | Check how `userprofile_builder.py` learns baselines |
+| **4. Sequences** | `apt_sequence_patterns` | `SELECT * FROM apt_sequence_patterns;` | View risky sequences found by `sequence_builder.py` |
+| **5. AI Alerts** | `apt_alerts` | `SELECT * FROM apt_alerts ORDER BY created_at DESC;` | View the final AI threat detection alerts |
 
 ---
 
 ## 🛠️ Internal Components
 
-*   **`monitor/monitor.py`**: The multi-processor orchestrator.
-*   **`agent/inference.py`**: The 7-dimensional DQN "Brain" (Inference pipeline).
+*   **`src/apt_guard.c`**: The C-extension that hooks into PostgreSQL's executor to capture all SQL activity.
+*   **`monitor/monitor.py`**: The multi-processor orchestrator that builds sessions, profiles, and triggers inference.
+*   **`agent/inference.py`**: The 7-dimensional DQN "Brain" (inference pipeline).
+*   **`agent/train.py`**: Offline DQN training with Double DQN and experience replay.
 *   **`api/app.py`**: The Flask Dashboard backend.
+*   **`start_all.py`**: Entry point that starts the Dashboard and Monitor (with graceful checkpoint detection).
 
 ---
 
@@ -120,6 +154,7 @@ The system focuses on 7 key session metrics to distinguish benign users from APT
 - [x] **AI Model**: Freshly trained 7-dimension DQN with **99.5% accuracy**.
 - [x] **Real-Time Alerting**: Immediate population of `apt_alerts` table upon threat detection.
 - [x] **Interactive Dashboard**: Flask-based visualization for forensic analysis.
+- [x] **Containerized Deployment**: Full Docker Compose workflow with graceful startup.
 
 ---
 **Team:** Adithyan M C, Asiya Salam, Jobin A J, Sreedeep Rajeevan.

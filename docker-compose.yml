@@ -31,7 +31,7 @@ services:
      # Database connection override to point to the local 'db' container
      DB_HOST: db
      DB_PORT: 5432
-     DB_NAME: university
+     DB_NAME: postgres
      DB_USER: postgres
      DB_PASSWORD: ${LOCAL_DB_PASSWORD:-postgres}
      DB_SSL_MODE: disable

@@ -10,6 +10,9 @@ checkpoints/*.pt
 checkpoints/metrics.json
 *.log
 
+# Generated training data (regenerate with: python data/generate_training_data.py)
+data/*.npz
+
 # IDEs
 .vscode/
 .idea/

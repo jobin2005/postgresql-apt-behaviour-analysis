@@ -58,7 +58,8 @@ is_internal_query(const char *queryText)
         strcasestr(queryText, "apt_sessions") || 
         strcasestr(queryText, "apt_alerts") ||
         strcasestr(queryText, "apt_user_profile") ||
-        strcasestr(queryText, "apt_sequence_patterns"))
+        strcasestr(queryText, "apt_sequence_patterns") ||
+        strcasestr(queryText, "apt_guard"))
         return true;
     return false;
 }
