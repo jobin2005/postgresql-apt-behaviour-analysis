@@ -9,6 +9,9 @@ import psycopg2
 import torch
 import math
 import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from agent.dqn_model import DQN
 from defense.actions import execute_action
@@ -41,15 +44,18 @@ def fetch_sessions(conn):
     with conn.cursor() as cur:
         cur.execute("""
             SELECT session_id, user_id,
-                   query_count, failed_query_count,
+                   query_count,
+                   failed_query_count,
                    total_rows_accessed,
                    unique_tables,
                    session_duration
             FROM apt_sessions
         """)
+
         rows = cur.fetchall()
 
     sessions = []
+
     for r in rows:
         sessions.append({
             "session_id": r[0],
@@ -65,73 +71,57 @@ def fetch_sessions(conn):
 
 
 # ─────────────────────────────────────────────
-# LOAD MODEL (kept but unused for now)
-# ─────────────────────────────────────────────
-def load_agent(path):
-    model = DQN(state_dim())
-    model.load_state_dict(torch.load(path, map_location="cpu"))
-    model.eval()
-    return model
-
-
-# ─────────────────────────────────────────────
 # MAIN LOOP
 # ─────────────────────────────────────────────
 def run_monitor():
-    conn = get_conn()
-
-    print("MONITOR STARTED", flush=True)
-    print("MONITOR DB:", conn.get_dsn_parameters(), flush=True)
-
-    
-    # agent = load_agent("checkpoints/dqn_best.pt")
-
-    last_pipeline_run = 0
 
     while True:
-        print("🔁 MONITOR LOOP RUNNING", flush=True)
+        try:
+            conn = get_conn()
+        except Exception as e:
+            logger.error("Database connection failed: %s", e)
+            time.sleep(5)
+            continue
 
-        # ─────────────────────────────────────────────
-        # 1. RUN FULL APT PIPELINE PERIODICALLY
-        # ─────────────────────────────────────────────
-        if time.time() - last_pipeline_run > 10:
-            print("⚡ Running session pipeline...", flush=True)
+        # STEP 1: Process raw events into analytical models
+        try:
+              run_session_pipeline()
+              run_profiles()
+              run_sequences()
 
-            run_session_pipeline()
-            run_profiles()
-            run_sequences()
+        except Exception as exc:
+            logger.error("Error in analytical builders: %s", exc)
 
-            last_pipeline_run = time.time()
+        # STEP 2: Inference on active sessions
+        try:
+            sessions = fetch_sessions(conn)
+        except Exception as e:
+            logger.error("Error fetching sessions: %s", e)
+            conn.close()
+            time.sleep(5)
+            continue
 
-        # ─────────────────────────────────────────────
-        # 2. FETCH SESSIONS
-        # ─────────────────────────────────────────────
-        sessions = fetch_sessions(conn)
+        for s in sessions:  
+            try:
+                state = extract_state(conn, s)
+                # Use the new inference pipeline to score and alert
+                from agent.inference import score_and_alert
+                result = score_and_alert(conn, s["session_id"], state)
 
-        print(f" SESSIONS FOUND: {len(sessions)}", flush=True)
+                logger.info(
+                    "session=%d action=%s (%d) threat=%s alert_id=%s",
+                    s["session_id"], 
+                    result["action_taken"],
+                    result["action"],
+                    result["threat_level"],
+                    result["alert_id"]
+                )
+            except Exception as exc:
+                logger.error("Error processing session %d: %s", s["session_id"], exc)
 
-        for s in sessions:
-            print(f"➡ Processing session: {s['session_id']}", flush=True)
-
-            
-            # state = extract_state(conn, s)
-            # q_vals = agent.q_values(state)
-            # action = int(max(range(len(q_vals)), key=lambda i: q_vals[i]))
-            # threat = 1 / (1 + math.exp(-max(q_vals)))
-
-            # logger.info(
-            #     "session=%d action=%d threat=%.3f",
-            #     s["session_id"], action, threat
-            # )
-
-            # execute_action(action, s["session_id"], threat, q_vals)
-
-        time.sleep(5)  #  IMPORTANT (prevent CPU overload)
+        conn.close()
+        time.sleep(15)
 
 
-# ─────────────────────────────────────────────
-# ENTRY POINT
-# ─────────────────────────────────────────────
 if __name__ == "__main__":
-    print(" STARTING MONITOR...", flush=True)
     run_monitor()

@@ -110,7 +110,7 @@ def get_stats():
             cur.execute("SELECT COUNT(*) AS total_alerts FROM apt_alerts")
             total_alerts = cur.fetchone()["total_alerts"]
             cur.execute(
-                "SELECT COUNT(*) AS apt_sessions FROM apt_sessions WHERE threat_label >= 1"
+                "SELECT COUNT(*) AS apt_sessions FROM apt_sessions WHERE anomaly_score > 0.8"
             )
             apt_sessions = cur.fetchone()["apt_sessions"]
             cur.execute(

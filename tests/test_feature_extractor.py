@@ -132,5 +132,4 @@ def test_duration_normalised_in_state():
     state_slow = extract_state([ev_slow])
     # Duration is at N_CMD_TYPES + 3 = 12 (in last slot)
     dur_idx = (WINDOW_SIZE - 1) * FEATURES_PER_EVENT + 12
-    assert state_slow[dur_idx] > state_fast[dur_idx]
-
+    assert state_slow[dur_idx] > state_fast[dur_idx]    

@@ -87,10 +87,14 @@ CREATE TABLE IF NOT EXISTS apt_alerts (
     session_id INT REFERENCES apt_sessions(session_id),
 
     threat_level TEXT,
+    threat_score FLOAT DEFAULT 0,
     action_taken TEXT,
+    q_values JSONB,
 
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    resolved BOOLEAN DEFAULT FALSE
 );
+
 
 -- For fast event lookup by user
 CREATE INDEX IF NOT EXISTS idx_events_user 
