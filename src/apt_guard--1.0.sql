@@ -1,11 +1,41 @@
 
 -- ===============================
+-- APT SESSIONS TABLE (CORE LOGIC)
+-- (Must be created before apt_events due to FK dependency)
+-- ===============================
+CREATE TABLE IF NOT EXISTS apt_sessions (
+    session_id SERIAL PRIMARY KEY,
+    user_id TEXT NOT NULL,
+
+    start_time TIMESTAMP,
+    end_time TIMESTAMP,
+
+    query_count INT DEFAULT 0,
+    failed_query_count INT DEFAULT 0,
+
+    total_rows_accessed INT DEFAULT 0,
+    unique_tables INT DEFAULT 0,
+
+    privilege_escalation_flag BOOLEAN DEFAULT FALSE,
+
+    anomaly_score FLOAT DEFAULT 0,
+
+    session_duration FLOAT DEFAULT 0,  -- seconds
+
+    user_name TEXT,
+    client_addr INET,
+    origin_process TEXT,
+    threat_label INT DEFAULT 0
+);
+
+
+-- ===============================
 -- APT EVENTS TABLE (RAW INPUT)
 -- ===============================
 CREATE TABLE IF NOT EXISTS apt_events (
     event_id SERIAL PRIMARY KEY,
-    session_id INT REFERENCES apt_sessions(session_id),
     user_id TEXT NOT NULL,
+    session_id INT REFERENCES apt_sessions(session_id),
 
     session_hint TEXT,  -- optional (can help grouping if available)
 
@@ -27,30 +57,6 @@ CREATE TABLE IF NOT EXISTS apt_events (
 
 
 -- ===============================
--- APT SESSIONS TABLE (CORE LOGIC)
--- ===============================
-CREATE TABLE IF NOT EXISTS apt_sessions (
-    session_id SERIAL PRIMARY KEY,
-    user_id TEXT NOT NULL,
-
-    start_time TIMESTAMP,
-    end_time TIMESTAMP,
-
-    query_count INT DEFAULT 0,
-    failed_query_count INT DEFAULT 0,
-
-    total_rows_accessed INT DEFAULT 0,
-    unique_tables INT DEFAULT 0,
-
-    privilege_escalation_flag BOOLEAN DEFAULT FALSE,
-
-    anomaly_score FLOAT DEFAULT 0,
-
-    session_duration FLOAT DEFAULT 0  -- seconds
-);
-
-
--- ===============================
 -- USER PROFILE TABLE (BASELINE)
 -- ===============================
 CREATE TABLE IF NOT EXISTS apt_user_profile (
@@ -65,12 +71,12 @@ CREATE TABLE IF NOT EXISTS apt_user_profile (
 
 
 -- ===============================
--- SEQUENCE PATTERNS TABLE (OPTIONAL ADVANCED)
+-- SEQUENCE PATTERNS TABLE
 -- ===============================
 CREATE TABLE IF NOT EXISTS apt_sequence_patterns (
     pattern_id SERIAL PRIMARY KEY,
 
-    sequence TEXT UNIQUE,   -- ✅ add UNIQUE here directly
+    sequence TEXT UNIQUE,
 
     frequency INT DEFAULT 0,
 
@@ -87,27 +93,29 @@ CREATE TABLE IF NOT EXISTS apt_alerts (
     session_id INT REFERENCES apt_sessions(session_id),
 
     threat_level TEXT,
+    threat_score FLOAT DEFAULT 0,
     action_taken TEXT,
+    q_values JSONB,
 
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    resolved BOOLEAN DEFAULT FALSE
 );
 
 -- For fast event lookup by user
-CREATE INDEX IF NOT EXISTS idx_events_user 
+CREATE INDEX IF NOT EXISTS idx_events_user
 ON apt_events(user_id);
 
 -- For time-based queries (VERY IMPORTANT)
-CREATE INDEX IF NOT EXISTS idx_events_time 
+CREATE INDEX IF NOT EXISTS idx_events_time
 ON apt_events(event_time);
 
 -- For session lookup
-CREATE INDEX IF NOT EXISTS idx_sessions_user 
+CREATE INDEX IF NOT EXISTS idx_sessions_user
 ON apt_sessions(user_id);
 
 -- Alerts lookup
-CREATE INDEX IF NOT EXISTS idx_alerts_session 
+CREATE INDEX IF NOT EXISTS idx_alerts_session
 ON apt_alerts(session_id);
 
-CREATE INDEX IF NOT EXISTS idx_alerts_time 
+CREATE INDEX IF NOT EXISTS idx_alerts_time
 ON apt_alerts(created_at);
-

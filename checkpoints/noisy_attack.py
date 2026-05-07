@@ -9,7 +9,7 @@ def run_attack():
         cur = conn.cursor()
         print("Noisy attack session started...")
         for i in range(50):
-            cur.execute("SELECT * FROM student_records LIMIT 1000;")
+            cur.execute("SELECT * FROM test_scores LIMIT 1000;")
         for i in range(15):
             try:
                 cur.execute(f"SELECT * FROM access_fail_{i};")
