@@ -34,4 +34,4 @@ class ReplayBuffer:
 
     @property
     def is_ready(self) -> bool:
-        return len(self._buf) >= 512   # minimum before training starts
+        return len(self._buf) >= 64    # minimum before training starts

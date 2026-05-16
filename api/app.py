@@ -12,7 +12,6 @@ Endpoints:
 """
 
 import os
-import sys
 from datetime import datetime, timezone, timedelta
 
 from flask import Flask, render_template, jsonify, request
@@ -52,9 +51,17 @@ def get_threats():
     try:
         with conn.cursor() as cur:
             cur.execute(
-                """SELECT a.alert_id, a.session_id, a.created_at,
-                          a.threat_score, a.action_taken, a.q_values,
-                          s.user_name, s.client_addr, s.origin_process
+                """SELECT a.alert_id,
+                          a.session_id,
+                          a.created_at,
+                          a.threat_score,
+                          a.threat_level,
+                          a.action_taken,
+                          a.q_values,
+                          a.resolved,
+                          s.user_id   AS user_name,
+                          s.anomaly_score,
+                          s.query_count
                    FROM apt_alerts a
                    JOIN apt_sessions s ON a.session_id = s.session_id
                    WHERE a.created_at >= %s
@@ -69,8 +76,7 @@ def get_threats():
     items = []
     for r in rows:
         item = dict(r)
-        item["created_at"]  = item["created_at"].isoformat()
-        item["client_addr"] = str(item["client_addr"]) if item["client_addr"] else None
+        item["created_at"] = item["created_at"].isoformat()
         items.append(item)
     return jsonify(items)
 
@@ -81,7 +87,8 @@ def get_alerts():
     try:
         with conn.cursor() as cur:
             cur.execute(
-                """SELECT a.*, s.user_name
+                """SELECT a.*,
+                          s.user_id AS user_name
                    FROM apt_alerts a
                    JOIN apt_sessions s ON a.session_id = s.session_id
                    WHERE a.resolved = FALSE
@@ -107,14 +114,19 @@ def get_stats():
         with conn.cursor() as cur:
             cur.execute("SELECT COUNT(*) AS total_sessions FROM apt_sessions")
             total_sessions = cur.fetchone()["total_sessions"]
+
             cur.execute("SELECT COUNT(*) AS total_alerts FROM apt_alerts")
             total_alerts = cur.fetchone()["total_alerts"]
+
             cur.execute(
-                "SELECT COUNT(*) AS apt_sessions FROM apt_sessions WHERE threat_label >= 1"
+                "SELECT COUNT(*) AS apt_sessions FROM apt_sessions WHERE anomaly_score > 0.8"
             )
             apt_sessions = cur.fetchone()["apt_sessions"]
+
             cur.execute(
-                "SELECT AVG(threat_score) AS avg_score FROM apt_alerts WHERE created_at > NOW() - INTERVAL '3 days'"
+                """SELECT AVG(threat_score) AS avg_score
+                   FROM apt_alerts
+                   WHERE created_at > NOW() - INTERVAL '3 days'"""
             )
             row = cur.fetchone()
             avg_score = float(row["avg_score"]) if row["avg_score"] else 0.0
@@ -122,9 +134,9 @@ def get_stats():
         conn.close()
 
     return jsonify({
-        "total_sessions": total_sessions,
-        "apt_sessions":   apt_sessions,
-        "total_alerts":   total_alerts,
+        "total_sessions":      total_sessions,
+        "apt_sessions":        apt_sessions,
+        "total_alerts":        total_alerts,
         "avg_threat_score_1h": round(avg_score, 3),
     })
 
@@ -136,8 +148,8 @@ def post_feedback():
     if not data:
         return jsonify({"error": "JSON body required"}), 400
 
-    alert_id  = data.get("alert_id")
-    resolved  = data.get("resolved", True)
+    alert_id = data.get("alert_id")
+    resolved = data.get("resolved", True)
 
     if alert_id is None:
         return jsonify({"error": "alert_id required"}), 400

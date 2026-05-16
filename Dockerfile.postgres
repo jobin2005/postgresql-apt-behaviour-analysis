@@ -20,9 +20,31 @@ COPY src/apt_guard.control ./
 # Build and install the extension
 RUN make && make install
 
-# Copy initialization script
-# This script will be executed when the container starts for the first time
-COPY data/schema.sql /docker-entrypoint-initdb.d/01_schema.sql
+# Copy university sample data into the image so the init script can reference it
+COPY data/university_sample.sql /docker-entrypoint-initdb.d/university_sample.sql
+
+# Create the university database and install the extension inside it.
+# Tables are owned and created by the extension
+RUN printf '%s\n' \
+    '#!/bin/bash' \
+    'set -e' \
+    '' \
+    '# 1. Create the university database' \
+    'psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" <<-EOSQL' \
+    '    CREATE DATABASE university;' \
+    'EOSQL' \
+    '' \
+    '# 2. Install the extension (creates all apt_* tables)' \
+    'psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname university <<-EOSQL' \
+    '    CREATE EXTENSION apt_guard;' \
+    'EOSQL' \
+    '' \
+    '# 3. Load university domain tables (students, courses, student_records ...)' \
+    'psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname university \' \
+    '    -f /docker-entrypoint-initdb.d/university_sample.sql' \
+    > /docker-entrypoint-initdb.d/01_init.sh && \
+    chmod +x /docker-entrypoint-initdb.d/01_init.sh
+
 
 # Ensure that the extension is preloaded by configuring postgresql.conf
 CMD ["postgres", "-c", "shared_preload_libraries=apt_guard"]

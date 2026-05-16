@@ -1,12 +1,11 @@
 """
 dqn_model.py
 ------------
-Deep Q-Network implemented in PyTorch.
+Deep Q-Network for session-based APT detection.
 
-Architecture:
-    Input (state_dim=150) → Linear(256) → ReLU → Dropout(0.2)
-                          → Linear(128) → ReLU → Dropout(0.2)
-                          → Linear(4)   → Q-values
+Architecture (7-dim input):
+    Input(7) → Linear(64) → ReLU → BN → Linear(64) → ReLU → BN
+             → Linear(32) → ReLU → Linear(4)
 
 Actions:
     0 = No-op        (no response)
@@ -17,20 +16,24 @@ Actions:
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
 
 class DQN(nn.Module):
-    def __init__(self, state_dim: int = 150, n_actions: int = 4):
+    def __init__(self, state_dim: int = 7, n_actions: int = 4):
         super().__init__()
         self.net = nn.Sequential(
-            nn.Linear(state_dim, 256),
+            nn.Linear(state_dim, 64),
             nn.ReLU(),
-            nn.Dropout(p=0.2),
-            nn.Linear(256, 128),
+            nn.BatchNorm1d(64),
+
+            nn.Linear(64, 64),
             nn.ReLU(),
-            nn.Dropout(p=0.2),
-            nn.Linear(128, n_actions),
+            nn.BatchNorm1d(64),
+
+            nn.Linear(64, 32),
+            nn.ReLU(),
+
+            nn.Linear(32, n_actions),
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
